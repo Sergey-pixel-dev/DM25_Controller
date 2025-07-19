@@ -1,0 +1,6 @@
+/home/serg50012/programming/stm32/TEST_ADC_F4/build/Debug/CMakeFiles/TEST_ADC_F4.dir
+/home/serg50012/programming/stm32/TEST_ADC_F4/build/Debug/CMakeFiles/edit_cache.dir
+/home/serg50012/programming/stm32/TEST_ADC_F4/build/Debug/CMakeFiles/rebuild_cache.dir
+/home/serg50012/programming/stm32/TEST_ADC_F4/build/Debug/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
+/home/serg50012/programming/stm32/TEST_ADC_F4/build/Debug/cmake/stm32cubemx/CMakeFiles/edit_cache.dir
+/home/serg50012/programming/stm32/TEST_ADC_F4/build/Debug/cmake/stm32cubemx/CMakeFiles/rebuild_cache.dir

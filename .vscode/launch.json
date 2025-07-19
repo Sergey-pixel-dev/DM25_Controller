@@ -1,0 +1,32 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug STM32F446 (OpenOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/TEST_ADC_F4.elf",
+            "servertype": "openocd",
+            "device": "STM32F446RET6",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f4x.cfg"
+            ],
+            "runToEntryPoint": "main",
+            "svdFile": "${workspaceFolder}/STM32F446.svd",
+            "serverArgs": [],
+            "searchDir": [
+                "/usr/share/openocd/scripts"
+            ],
+            "gdbPath": "/home/serg50012/stm/CubeCTL/GNU-tools-for-STM32/bin/arm-none-eabi-gdb",
+            "objdumpPath": "/home/serg50012/stm/CubeCTL/GNU-tools-for-STM32/bin/arm-none-eabi-objdump",
+            "nmPath": "/home/serg50012/stm/CubeCTL/GNU-tools-for-STM32/bin/arm-none-eabi-nm",
+            "postRestartCommands": [
+                "break main",
+                "continue"
+            ],
+            "showDevDebugOutput": "raw"
+        }
+    ]
+}
