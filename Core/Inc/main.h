@@ -46,9 +46,9 @@ extern "C"
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
+/* USER CODE BEGIN EM */ // 25, 22
 #define N_SAMPLES 25
-#define N_FRAMES 22
+#define N_FRAMES 10
   /* USER CODE END EM */
 
   /* Exported functions prototypes ---------------------------------------------*/

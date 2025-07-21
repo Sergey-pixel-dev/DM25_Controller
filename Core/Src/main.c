@@ -76,7 +76,7 @@ void ADC_init(void)
   ADC1->CR1 = 0;
   ADC1->CR2 = 0;
 
-  ADC1->CR1 |= ADC_RESOLUTION_8B;
+  ADC1->CR1 |= ADC_RESOLUTION_12B;
 
   ADC1->SMPR1 = 0;
   ADC1->SMPR1 |= ADC_SMPR1_SMP17_2 | ADC_SMPR1_SMP17_1 | ADC_SMPR1_SMP17_0;
@@ -241,8 +241,9 @@ int main(void)
   while (!(ADC1->SR & ADC_SR_EOC))
     ;
   uint16_t raw_vrefint = ADC1->DR;
-  vdda = (0xFF * VREFINT_CAL) / raw_vrefint; // 8-bit разрешение ADC -> 0xFF */
+  vdda = (3300 * VREFINT_CAL) / raw_vrefint; // 8-bit разрешение ADC -> 0xFF */
 
+  ADC1->CR1 |= ADC_RESOLUTION_8B;
   ADC1->SQR3 = (9 << 0);
   ADC1->CR2 |= ADC_CR2_CONT;
   ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0; // tim2 cc2
@@ -285,7 +286,6 @@ int main(void)
         frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
       }
       HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES * N_SAMPLES, HAL_MAX_DELAY);
-      frame[0] += 1;
     }
     /* USER CODE END WHILE */
 
