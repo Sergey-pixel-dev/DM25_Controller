@@ -257,7 +257,7 @@ void DMA2_Stream0_IRQHandler(void)
         ;
       ADC1->SR = 0;
       ADC1->CR2 |= ADC_CR2_DMA;
-      TIM2->CCR2 += 2;
+      TIM2->CCR2 += 5;
       ADC1->CR2 |= ADC_CR2_EXTEN;
     }
   }
