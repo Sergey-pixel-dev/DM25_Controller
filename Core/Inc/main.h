@@ -47,8 +47,7 @@ extern "C"
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-#define N_SAMPLES 1
-#define N_FRAMES 200
+#define N_FRAMES 576
   /* USER CODE END EM */
 
   /* Exported functions prototypes ---------------------------------------------*/
@@ -61,9 +60,8 @@ extern "C"
   /* Private defines -----------------------------------------------------------*/
 
   /* USER CODE BEGIN Private defines */
-  extern uint16_t frame[N_FRAMES * N_SAMPLES];
-  extern uint8_t frame_8int_V[2 * N_FRAMES * N_SAMPLES];
-  extern uint8_t i;
+  extern uint16_t frame[N_FRAMES];
+  extern uint8_t frame_8int_V[2 * N_FRAMES];
   /* USER CODE END Private defines */
 
 #ifdef __cplusplus

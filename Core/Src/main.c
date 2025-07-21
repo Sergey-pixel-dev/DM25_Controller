@@ -51,9 +51,8 @@ UART_HandleTypeDef huart5;
 #define VREFINT_CAL_ADDR 0x1FFF7A2A
 uint16_t VREFINT_CAL;
 uint16_t vdda;
-uint8_t i;
-uint16_t frame[N_SAMPLES * N_FRAMES];
-uint8_t frame_8int_V[2 * N_SAMPLES * N_FRAMES];
+uint16_t frame[N_FRAMES];
+uint8_t frame_8int_V[2 * N_FRAMES];
 
 uint8_t buf[8];
 uint8_t RxData[256];
@@ -91,7 +90,7 @@ void ADC_DMA_Init(void)
   RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
   DMA2_Stream0->PAR = ADC1_BASE + 0x4C;
   DMA2_Stream0->M0AR = (uint32_t)frame;
-  DMA2_Stream0->NDTR = N_SAMPLES;
+  DMA2_Stream0->NDTR = 1;
   DMA2_Stream0->CR = 0;
 
   DMA2_Stream0->CR |= DMA_PRIORITY_VERY_HIGH;
@@ -104,48 +103,6 @@ void ADC_DMA_Init(void)
 
   NVIC_SetPriority(DMA2_Stream0_IRQn, 0);
   NVIC_EnableIRQ(DMA2_Stream0_IRQn);
-}
-void TIM2_Init()
-{
-  // Включение тактирования TIM2
-  RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
-
-  // Сброс настроек таймера
-  TIM2->CR1 = 0;
-  TIM2->CR2 = 0;
-  TIM2->SMCR = 0;
-  TIM2->CCER = 0;
-
-  // Настройка предделителя и периода
-  TIM2->PSC = 0;   // Предделитель 0 (деление на 1)
-  TIM2->ARR = 100; // Период 100 тактов
-
-  // Настройка канала 2 в режиме Toggle
-  TIM2->CCMR1 &= ~TIM_CCMR1_OC2M; // Сброс предыдущих настроек
-  TIM2->CCMR1 |= (0b011 << 8);    // OC2M = 011 (Toggle mode)
-
-  // Установка значения сравнения
-  TIM2->CCR2 = 1; // Значение сравнения для канала 2
-
-  // Настройка режима однократного импульса (One Pulse Mode)
-  TIM2->CR1 |= TIM_CR1_OPM; // One Pulse Mode
-
-  // Настройка внешнего триггера (ETR)
-  TIM2->SMCR |= (0b100 << 4); // TS = 100 (ETRF)
-  TIM2->SMCR |= (0b110 << 0); // SMS = 110 (Trigger mode)
-
-  // Настройка фильтра и полярности ETR
-  TIM2->SMCR &= ~(0xF << 8);   // ETF = 0000 (без фильтра)
-  TIM2->SMCR &= ~TIM_SMCR_ETP; // ETP = 0 (положительная полярность)
-
-  // Включение ETR
-  TIM2->SMCR |= TIM_SMCR_ECE; // External Clock Enable
-
-  // Принудительное обновление регистров
-  TIM2->EGR |= TIM_EGR_UG; // Принудительное событие обновления
-
-  // Очистка всех флагов
-  TIM2->SR = 0;
 }
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
@@ -183,9 +140,13 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
       break;
     }
   }
-  else if (RxData[0] == 1)
+  else if (RxData[0] == 0x01)
   {
     buf[0] = 1;
+  }
+  else if (RxData[0] == 0x02)
+  {
+    buf[0] = 2;
   }
 
   HAL_UARTEx_ReceiveToIdle_IT(&huart5, RxData, 256);
@@ -232,7 +193,7 @@ int main(void)
   // MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   VREFINT_CAL = *(uint16_t *)VREFINT_CAL_ADDR;
-  ADC_DMA_Init();
+  // ADC_DMA_Init();
   ADC_init();
 
   ADC1->CR2 |= ADC_CR2_ADON;
@@ -245,7 +206,6 @@ int main(void)
 
   ADC1->CR1 |= ADC_RESOLUTION_8B;
   ADC1->SQR3 = (9 << 0);
-  ADC1->CR2 |= ADC_CR2_CONT;
   ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0; // tim2 cc2
   // заупск таймера TIM2 + OC 2 CHANNEL
   HAL_Delay(10);
@@ -262,30 +222,49 @@ int main(void)
     if (buf[0] == 1)
     {
       buf[0] = 0;
-      memset(frame, 0, N_FRAMES * N_SAMPLES);
-      i = 0;
+      memset(frame, 0, N_FRAMES);
+      TIM2->CNT = 0;
       TIM2->CCR2 = 1;
-      ADC1->CR2 &= ~ADC_CR2_DMA;
-      DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-      while (DMA2_Stream0->CR & DMA_SxCR_EN)
-        ;
-      DMA2_Stream0->M0AR = (uint32_t)frame;
-      DMA2_Stream0->NDTR = N_SAMPLES;
-      DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
-      DMA2_Stream0->CR |= DMA_SxCR_EN;
-      while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
-        ;
       ADC1->SR = 0;
-      ADC1->CR2 |= ADC_CR2_DMA;
       ADC1->CR2 |= ADC_CR2_EXTEN;
-      HAL_Delay(1000);
-      for (uint16_t i = 0; i < N_FRAMES * N_SAMPLES; i++)
+      for (uint16_t i = 0; i < N_FRAMES; i++)
+      {
+        while (!(ADC1->SR & ADC_SR_EOC))
+          ;
+        frame[i] = ADC1->DR;
+        TIM2->CCR2 += 1;
+      }
+      ADC1->CR2 &= ~ADC_CR2_EXTEN;
+
+      for (uint16_t i = 0; i < N_FRAMES; i++)
       {
         uint16_t word = vdda * frame[i] / 0xFF;
         frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
         frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
       }
-      HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES * N_SAMPLES, HAL_MAX_DELAY);
+      HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES, HAL_MAX_DELAY);
+    }
+    if (buf[0] == 2)
+    {
+      buf[0] = 0;
+      uint16_t i_offset = RxData[1] | RxData[2] << 8;
+      uint16_t sum = 0;
+      TIM2->CNT = 0;
+      TIM2->CCR2 = i_offset;
+      ADC1->SR = 0;
+      ADC1->CR2 |= ADC_CR2_EXTEN;
+      for (uint16_t i = 0; i < 100; i++)
+      {
+        while (!(ADC1->SR & ADC_SR_EOC))
+          ;
+        sum += ADC1->DR;
+      }
+      ADC1->CR2 &= ~ADC_CR2_EXTEN;
+      uint16_t average = vdda * (sum / 100) / 0xFF;
+      uint8_t raw_average[2];
+      raw_average[0] = (uint8_t)average & 0xFF;
+      raw_average[1] = (uint8_t)(average >> 8) & 0xFF;
+      HAL_UART_Transmit(&huart5, raw_average, 2, HAL_MAX_DELAY);
     }
     /* USER CODE END WHILE */
 
@@ -413,7 +392,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1200;
+  htim2.Init.Period = 1000;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -449,7 +428,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = 1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)

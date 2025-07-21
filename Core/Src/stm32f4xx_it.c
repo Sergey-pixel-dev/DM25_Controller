@@ -206,12 +206,9 @@ void SysTick_Handler(void)
 void TIM2_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM2_IRQn 0 */
-  if (TIM2->SR & TIM_SR_CC2IF)
-  {
-    TIM2->SR &= ~TIM_SR_CC2IF;
-  }
+
   /* USER CODE END TIM2_IRQn 0 */
-  // HAL_TIM_IRQHandler(&htim2);
+  HAL_TIM_IRQHandler(&htim2);
   /* USER CODE BEGIN TIM2_IRQn 1 */
 
   /* USER CODE END TIM2_IRQn 1 */
@@ -237,32 +234,8 @@ void UART5_IRQHandler(void)
 void DMA2_Stream0_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
-  if (DMA2->LISR & DMA_LISR_TCIF0)
-  {
-    ADC1->CR2 &= ~ADC_CR2_EXTEN;
-    DMA2->LIFCR |= DMA_LIFCR_CTCIF0;
-    i++;
-    if (i < N_FRAMES)
-    {
-      ADC1->CR2 &= ~ADC_CR2_DMA;
-
-      DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-      while (DMA2_Stream0->CR & DMA_SxCR_EN)
-        ;
-      DMA2_Stream0->M0AR = (uint32_t)(frame + i * N_SAMPLES);
-      DMA2_Stream0->NDTR = N_SAMPLES;
-      DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
-      DMA2_Stream0->CR |= DMA_SxCR_EN;
-      while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
-        ;
-      ADC1->SR = 0;
-      ADC1->CR2 |= ADC_CR2_DMA;
-      TIM2->CCR2 += 5;
-      ADC1->CR2 |= ADC_CR2_EXTEN;
-    }
-  }
   /* USER CODE END DMA2_Stream0_IRQn 0 */
-  // HAL_DMA_IRQHandler(&hdma_adc1);
+  HAL_DMA_IRQHandler(&hdma_adc1);
   /* USER CODE BEGIN DMA2_Stream0_IRQn 1 */
 
   /* USER CODE END DMA2_Stream0_IRQn 1 */
