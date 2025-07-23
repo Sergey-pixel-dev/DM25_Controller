@@ -25,6 +25,8 @@
         "stdlib.h": "c",
         "mbrtu.h": "c",
         "mbfunc.h": "c",
-        "modbusslave.h": "c"
+        "modbusslave.h": "c",
+        "cmath": "c",
+        "cstdlib": "c"
     }
 }

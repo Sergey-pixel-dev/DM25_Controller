@@ -1,5 +1,4 @@
-ПОЧЕМУ ВОТ ЭТО РАБОТАЕТ:
-void DMA2_Stream0_IRQHandler(void)
+ПОЧЕМУ ВОТ ЭТО РАБОТАЕТ : void DMA2_Stream0_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
   if (DMA2->LISR & DMA_LISR_TCIF0)
@@ -32,8 +31,7 @@ void DMA2_Stream0_IRQHandler(void)
 
   /* USER CODE END DMA2_Stream0_IRQn 1 */
 }
-А ЭТО НЕТ?
-void DMA2_Stream0_IRQHandler(void)
+А ЭТО НЕТ ? void DMA2_Stream0_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
   if (DMA2->LISR & DMA_LISR_TCIF0)
@@ -66,35 +64,63 @@ void DMA2_Stream0_IRQHandler(void)
   /* USER CODE END DMA2_Stream0_IRQn 1 */
 }
 while (1)
+{
+  if (buf[0] == 1)
   {
-    if (buf[0] == 1)
+    buf[0] = 0;
+    memset(frame, 0, N_FRAMES * N_SAMPLES);
+    i = 0;
+    TIM2->CCR2 = 1;
+    ADC1->SR &= ~ADC_SR_STRT;
+    ADC1->CR2 &= ~ADC_CR2_EXTEN;
+    ADC1->CR2 &= ~ADC_CR2_DMA;
+    DMA2_Stream0->CR &= ~DMA_SxCR_EN;
+    while (DMA2_Stream0->CR & DMA_SxCR_EN)
+      ;
+    DMA2_Stream0->M0AR = (uint32_t)frame;
+    DMA2_Stream0->NDTR = N_SAMPLES;
+    DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
+    DMA2_Stream0->CR |= DMA_SxCR_EN;
+    while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
+      ;
+    ADC1->SR = 0;
+    ADC1->CR2 |= ADC_CR2_DMA;
+    ADC1->CR2 |= ADC_CR2_EXTEN;
+    HAL_Delay(1000);
+    for (uint16_t i = 0; i < N_FRAMES * N_SAMPLES; i++)
     {
-      buf[0] = 0;
-      memset(frame, 0, N_FRAMES * N_SAMPLES);
-      i = 0;
-      TIM2->CCR2 = 1;
-      ADC1->SR &= ~ADC_SR_STRT;
-      ADC1->CR2 &= ~ADC_CR2_EXTEN;
-      ADC1->CR2 &= ~ADC_CR2_DMA;
-      DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-      while (DMA2_Stream0->CR & DMA_SxCR_EN)
-        ;
-      DMA2_Stream0->M0AR = (uint32_t)frame;
-      DMA2_Stream0->NDTR = N_SAMPLES;
-      DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
-      DMA2_Stream0->CR |= DMA_SxCR_EN;
-      while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
-        ;
-      ADC1->SR = 0;
-      ADC1->CR2 |= ADC_CR2_DMA;
-      ADC1->CR2 |= ADC_CR2_EXTEN;
-      HAL_Delay(1000);
-      for (uint16_t i = 0; i < N_FRAMES * N_SAMPLES; i++)
-      {
-        uint16_t word = vdda * frame[i] / 0xFF;
-        frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
-        frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
-      }
-      HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES * N_SAMPLES, HAL_MAX_DELAY);
-      frame[0] += 1;
+      uint16_t word = vdda * frame[i] / 0xFF;
+      frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
+      frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
     }
+    HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES * N_SAMPLES, HAL_MAX_DELAY);
+    frame[0] += 1;
+  }
+
+  // if (DMA2->LISR & DMA_LISR_TCIF0)
+  {
+    DMA2->LIFCR |= DMA_LIFCR_CTCIF0;
+
+    ADC3->CR2 &= ~ADC_CR2_DMA;
+    DMA2_Stream0->CR &= ~DMA_SxCR_EN;
+    while (DMA2_Stream0->CR & DMA_SxCR_EN)
+      ;
+
+    ADC3->SR &= ~ADC_SR_OVR;
+    DMA2->LIFCR |= DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
+
+    DMA2_Stream0->NDTR = 8 * 10;
+
+    DMA2_Stream0->CR |= DMA_SxCR_EN;
+    while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
+      ;
+    ADC3->CR2 |= ADC_CR2_DMA;
+
+    for (uint8_t i = 0; i < 8; i++)
+    {
+      uint32_t sum = 0;
+      for (uint8_t j = 0; j < 10; j++)
+        sum += samples[j * 8 + i];
+      usRegInputBuf[i] = vdda * (sum / 10) / 0xFF;
+    }
+  }

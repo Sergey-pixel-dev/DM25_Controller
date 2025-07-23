@@ -275,3 +275,103 @@ void DMA2_Stream0_IRQHandler(void)
 /* USER CODE BEGIN 1 */
 
 /* USER CODE END 1 */
+while (1)
+  {
+    current_tick = HAL_GetTick();
+    if (current_tick - last_tick > 500)
+    {
+      for (uint8_t i = 0; i < 8; i++)
+      {
+        ADC3->CR2 |= ADC_CR2_SWSTART;
+        usRegInputBuf[i] = vdda * ADC3->DR / 0xFF;
+      }
+    }
+    switch (op)
+    {
+    case OP_ADC:
+    {
+      op = OP_NONE;
+      MeasureVDD();
+      if (RxData[1] == 1)
+      {
+        adc1_ch = 9;
+        adc2_ch = 8;
+      }
+      else
+      {
+        adc1_ch = 9;
+        adc2_ch = 8;
+      }
+      ADC1->SQR3 = adc1_ch;
+      ADC2->SQR3 = adc2_ch;
+      TIM2->CNT = 0;
+      TIM2->CCR2 = 1;
+      ADC1->SR = 0;
+      ADC2->SR = 0;
+
+      memset(frame1, 0, N_FRAMES);
+      memset(frame2, 0, N_FRAMES);
+
+      ADC1->CR2 |= ADC_CR2_EXTEN;
+      for (uint16_t i = 0; i < N_FRAMES; i++)
+      {
+        while (!(ADC1->SR & ADC_SR_EOC))
+          ;
+        frame1[i] = ADC1->DR;
+        while (!(ADC2->SR & ADC_SR_EOC))
+          ;
+        frame2[i] = ADC2->DR;
+        TIM2->CCR2 += 1;
+      }
+      ADC1->CR2 &= ~ADC_CR2_EXTEN;
+      for (uint16_t i = 0; i < N_FRAMES; i++)
+      {
+        uint16_t word = vdda * abs(frame1[i] - frame2[i]) / 0xFF;
+        frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
+        frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
+      }
+      HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES, HAL_MAX_DELAY);
+      break;
+    }
+    case OP_AVERAGE:
+    {
+      op = OP_NONE;
+      MeasureVDD();
+      if (RxData[1] == 1)
+      {
+        adc1_ch = 9;
+        adc2_ch = 8;
+      }
+      else
+      {
+        adc1_ch = 9;
+        adc2_ch = 8;
+      }
+      ADC1->SQR3 = adc1_ch;
+      ADC2->SQR3 = adc2_ch;
+
+      uint16_t i_offset = RxData[2] | RxData[3] << 8;
+      uint16_t sum = 0;
+      TIM2->CNT = 0;
+      TIM2->CCR2 = i_offset;
+      ADC1->SR = 0;
+      ADC2->SR = 0;
+      ADC1->CR2 |= ADC_CR2_EXTEN;
+      for (uint16_t i = 0; i < 100; i++)
+      {
+        while (!(ADC1->SR & ADC_SR_EOC))
+          ;
+        while (!(ADC2->SR & ADC_SR_EOC))
+          ;
+        sum += abs(ADC1->DR - ADC2->DR);
+      }
+      ADC1->CR2 &= ~ADC_CR2_EXTEN;
+      uint16_t average = vdda * (sum / 100) / 0xFF;
+      uint8_t raw_average[2];
+      raw_average[0] = (uint8_t)average & 0xFF;
+      raw_average[1] = (uint8_t)(average >> 8) & 0xFF;
+      HAL_UART_Transmit(&huart5, raw_average, 2, HAL_MAX_DELAY);
+      break;
+    }
+    }
+  }

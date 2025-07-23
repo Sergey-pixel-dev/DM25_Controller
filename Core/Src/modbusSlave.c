@@ -232,9 +232,9 @@ uint8_t readInputs(void)
 	 * When the indxposition exceeds 7, we increment the indx variable, so to copy into the next byte of the TxData
 	 * This keeps going until the number of coils required have been copied
 	 */
-	int startByte = startAddr / 8;				// which byte we have to start extracting the data from
-	uint16_t bitPosition = (startAddr - 1) % 8; // The shift position in the first byte
-	int indxPosition = 0;						// The shift position in the current indx of the TxData buffer
+	int startByte = (startAddr - DISCRETE_START) / 8;		 // which byte we have to start extracting the data from
+	uint16_t bitPosition = (startAddr - DISCRETE_START) % 8; // The shift position in the first byte
+	int indxPosition = 0;									 // The shift position in the current indx of the TxData buffer
 
 	// Load the actual data into TxData buffer
 	for (int i = 0; i < numCoils; i++)
@@ -291,8 +291,8 @@ uint8_t writeHoldingRegs(void)
 
 	if (startAddr - REG_HOLDING_START <= 2)
 	{
-		// SetHZ();
-		// SetPulse();
+		SetHZ();
+		SetPulse();
 	}
 	// Prepare Response
 
@@ -353,8 +353,8 @@ uint8_t writeSingleCoil(void)
 	}
 
 	/* Calculation for the bit in the database, where the modification will be done */
-	int startByte = startAddr / 8;				// which byte we have to start writing the data into
-	uint16_t bitPosition = (startAddr - 1) % 8; // The shift position in the first byte
+	int startByte = (startAddr - COILS_START) / 8;		  // which byte we have to start writing the data into
+	uint16_t bitPosition = (startAddr - COILS_START) % 8; // The shift position in the first byte
 
 	/* The next 2 bytes in the RxData determines the state of the coil
 	 * A value of FF 00 hex requests the coil to be ON.
@@ -407,9 +407,9 @@ uint8_t writeMultiCoils(void)
 	}
 
 	/* Calculation for the bit in the database, where the modification will be done */
-	int startByte = startAddr / 8;				// which byte we have to start writing the data into
-	uint16_t bitPosition = (startAddr - 1) % 8; // The shift position in the first byte
-	int indxPosition = 0;						// The shift position in the current indx of the RxData buffer
+	int startByte = (startAddr - COILS_START) / 8;		  // which byte we have to start writing the data into
+	uint16_t bitPosition = (startAddr - COILS_START) % 8; // The shift position in the first byte
+	int indxPosition = 0;								  // The shift position in the current indx of the RxData buffer
 
 	int indx = 7; // we need to keep track of index in RxData
 
@@ -451,10 +451,10 @@ uint8_t writeMultiCoils(void)
 	}
 	if (startAddr == COILS_START) // адрес, где флаг для включения импульсов
 	{
-		// if (READ_BIT(*usCoilsBuf, 1 << 0))
-		//	StartTimers();
-		// else
-		// StopTimers();
+		if (READ_BIT(*usCoilsBuf, 1 << 0))
+			StartTimers();
+		else
+			StopTimers();
 	}
 	// Prepare Response
 
