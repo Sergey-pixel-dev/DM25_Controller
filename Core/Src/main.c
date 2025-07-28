@@ -50,12 +50,13 @@ UART_HandleTypeDef huart5;
 uint16_t VREFINT_CAL;
 uint16_t vdda;
 uint16_t frame1[N_FRAMES];
-uint16_t frame2[N_FRAMES];
 uint16_t sum;
+uint16_t sum2;
 uint8_t frame_8int_V[2 * N_FRAMES];
 
+// A1, A2, A3, A4 - входы диф пар (1, 2, 3, 4 каналы)
+// A5, A6, A7, PB0, PB1, PC0, PC1, PC2, PC3 - входы для обычной оцифровки - (5, 6, 7, 8, 9, 10, 11, 12, 13 каналы)
 uint8_t adc1_ch;
-uint8_t adc2_ch;
 
 typedef enum
 {
@@ -96,7 +97,6 @@ void ADC_init(void)
   ADC2->CR1 = 0;
   ADC2->CR2 = 0;
 
-
   ADC2->CR1 |= 2 << 24; // 8 -бит
 
   ADC1->SMPR1 = ADC_SMPR1_SMP17_2 | ADC_SMPR1_SMP17_1 | ADC_SMPR1_SMP17_0;
@@ -104,14 +104,14 @@ void ADC_init(void)
   ADC2->SMPR1 = 0;
   ADC2->SMPR2 = 0;
 
-
   ADC1->SQR1 = 0;
   ADC1->SQR2 = 0;
-  ADC1->SQR3 = (17 << 0);
+  ADC1->SQR3 = 0;
   ADC2->SQR1 = 0;
   ADC2->SQR2 = 0;
   ADC2->SQR3 = 0;
-
+  ADC2->SMPR1 = ADC_SMPR1_SMP10_2 | ADC_SMPR1_SMP11_2 | ADC_SMPR1_SMP12_2 | ADC_SMPR1_SMP13_2;
+  ADC2->SMPR2 = ADC_SMPR2_SMP5_2 | ADC_SMPR2_SMP6_2 | ADC_SMPR2_SMP7_2 | ADC_SMPR2_SMP8_2 | ADC_SMPR2_SMP9_2;
 
   ADC->CCR |= ADC_CCR_TSVREFE;
   ADC1->CR2 |= ADC_CR2_EOCS;
@@ -166,7 +166,6 @@ void MeasureVDD()
   ADC1->SQR3 = 17;
   ADC1->CR1 &= ~3 << 24;
   ADC1->CR2 &= ~(ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0);
-  ADC->CCR &= ~(ADC_CCR_MULTI_2 | ADC_CCR_MULTI_1);
 
   ADC1->CR2 |= ADC_CR2_SWSTART;
   while (!(ADC1->SR & ADC_SR_EOC))
@@ -177,7 +176,6 @@ void MeasureVDD()
   ADC1->CR1 |= 2 << 24;
   ADC1->SQR3 = adc1_ch;
   ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0;
-  ADC->CCR |= ADC_CCR_MULTI_2 | ADC_CCR_MULTI_1;
 }
 
 uint16_t ReadChannel(uint8_t channel)
@@ -245,28 +243,26 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    uint16_t bits = (GPIOB->IDR >> 12) & 0xF;
-    if ((usDiscreteBuf[0] & 0xF) != bits)
-    {
-      usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0xF) | bits;
-    }
 
     current_tick = HAL_GetTick();
     if (current_tick - last_tick > 500)
     {
-      ADC2->SMPR2 = ADC_SMPR2_SMP1_2 | ADC_SMPR2_SMP2_2 | ADC_SMPR2_SMP3_2 | ADC_SMPR2_SMP4_2 |
-                    ADC_SMPR2_SMP5_2 | ADC_SMPR2_SMP6_2 | ADC_SMPR2_SMP7_2 | ADC_SMPR2_SMP8_2;
+
       last_tick = current_tick;
-      for (uint8_t i = 1; i < 10; i++)
+      uint16_t bits = (GPIOB->IDR >> 12) & 0xF;
+      if ((usDiscreteBuf[0] & 0xF) != bits)
+      {
+        usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0xF) | bits;
+      }
+      for (uint8_t i = 5; i < 14; i++)
       {
         sum = 0;
         for (uint8_t j = 0; j < 10; j++)
         {
           sum += ReadChannel(i);
         }
-        usRegInputBuf[i - 1] = vdda * (sum / 10) / 0xFF;
+        usRegInputBuf[i - 5] = vdda * (sum / 10) / 0xFF;
       }
-      ADC2->SMPR2 = 0;
     }
     switch (op)
     {
@@ -274,41 +270,29 @@ int main(void)
     {
       op = OP_NONE;
       MeasureVDD();
-      if (RxData[1] == 1)
-      {
-        adc1_ch = 11;
-        adc2_ch = 10;
-      }
-      else
-      {
-        adc1_ch = 11;
-        adc2_ch = 10;
-      }
+      adc1_ch = RxData[1];
       ADC1->SQR3 = adc1_ch;
-      ADC2->SQR3 = adc2_ch;
       TIM2->CNT = 0;
       TIM2->CCR2 = 1;
       ADC1->SR = 0;
-      ADC2->SR = 0;
-
       memset(frame1, 0, N_FRAMES);
-      memset(frame2, 0, N_FRAMES);
-
       ADC1->CR2 |= ADC_CR2_EXTEN;
       for (uint16_t i = 0; i < N_FRAMES; i++)
       {
-        while (!(ADC1->SR & ADC_SR_EOC))
-          ;
-        frame1[i] = ADC1->DR;
-        while (!(ADC2->SR & ADC_SR_EOC))
-          ;
-        frame2[i] = ADC2->DR;
+        sum = 0;
+        for (uint8_t j = 0; j < N_SAMPLES; j++)
+        {
+          while (!(ADC1->SR & ADC_SR_EOC))
+            ;
+          sum += ADC1->DR;
+        }
+        frame1[i] = sum / N_SAMPLES;
         TIM2->CCR2 += 1;
       }
       ADC1->CR2 &= ~ADC_CR2_EXTEN;
       for (uint16_t i = 0; i < N_FRAMES; i++)
       {
-        uint16_t word = vdda * abs(frame1[i] - frame2[i]) / 0xFF;
+        uint16_t word = vdda * frame1[i] / 0xFF;
         frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
         frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
       }
@@ -319,18 +303,8 @@ int main(void)
     {
       op = OP_NONE;
       MeasureVDD();
-      if (RxData[1] == 1)
-      {
-        adc1_ch = 11;
-        adc2_ch = 10;
-      }
-      else
-      {
-        adc1_ch = 11;
-        adc2_ch = 10;
-      }
+      adc1_ch = RxData[1];
       ADC1->SQR3 = adc1_ch;
-      ADC2->SQR3 = adc2_ch;
 
       uint16_t i_offset = RxData[2] | RxData[3] << 8;
       uint16_t sum = 0;
@@ -343,9 +317,8 @@ int main(void)
       {
         while (!(ADC1->SR & ADC_SR_EOC))
           ;
-        while (!(ADC2->SR & ADC_SR_EOC))
-          ;
-        sum += abs(ADC1->DR - ADC2->DR);
+        ;
+        sum += ADC1->DR;
       }
       ADC1->CR2 &= ~ADC_CR2_EXTEN;
       uint16_t average = vdda * (sum / 100) / 0xFF;
@@ -432,7 +405,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 600;
+  htim2.Init.Period = 800;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -684,6 +657,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOC, &GPIO_Init);
   GPIO_Init.Pin = GPIO_PIN_1;
   HAL_GPIO_Init(GPIOC, &GPIO_Init);
+  GPIO_Init.Pin = GPIO_PIN_2;
+  HAL_GPIO_Init(GPIOC, &GPIO_Init);
+  GPIO_Init.Pin = GPIO_PIN_3;
+  HAL_GPIO_Init(GPIOC, &GPIO_Init);
+
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
