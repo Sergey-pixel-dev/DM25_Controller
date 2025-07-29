@@ -22,7 +22,7 @@
 #define COILS_START 00001
 #define DISCRETE_START 10001
 #define COILS_N 1
-#define DISCRETE_N 4
+#define DISCRETE_N 5
 #define REG_INPUT_NREGS 58
 #define REG_HOLDING_NREGS 39
 

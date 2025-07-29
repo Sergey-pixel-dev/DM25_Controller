@@ -11,17 +11,18 @@
 extern uint8_t RxData[256];
 extern uint8_t TxData[256];
 extern UART_HandleTypeDef huart5;
+// index 0 - 8: входы IN0-IN8
 
 uint16_t usRegInputBuf[REG_INPUT_NREGS];
-// index 0 - 8: входы IN0-IN8
-uint16_t usRegHoldingBuf[REG_HOLDING_NREGS];
-// 0 - HZ, 1 -длительность импулсьа, 2 - интервал
 
-uint16_t usCoilsBuf[1];
+// 0 - HZ, 1 -длительность импулсьа, 2 - интервал
+uint16_t usRegHoldingBuf[REG_HOLDING_NREGS];
+
 // X0000000 00000000 - 1, - ВКЛ ИМПУЛЬС
-uint16_t usDiscreteBuf[1];
+uint16_t usCoilsBuf[1];
 // XXXX0000 00000000,
-// 1, 2, 3, 4 по порядку - ВКЛ БЛОК НАКАЛА, ВКЛ У.Э., ВКЛ -25кВ, ВКЛ HE, LE
+// 1, 2, 3, 4 по порядку - ВКЛ БЛОК НАКАЛА, ВКЛ У.Э., ВКЛ -25кВ, ВКЛ HE, LE, БЛОК ГОТОВ
+uint16_t usDiscreteBuf[1];
 
 void sendData(uint8_t *data, int size)
 {

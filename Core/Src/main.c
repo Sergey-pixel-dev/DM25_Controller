@@ -249,10 +249,10 @@ int main(void)
     {
 
       last_tick = current_tick;
-      uint16_t bits = (GPIOB->IDR >> 12) & 0xF;
-      if ((usDiscreteBuf[0] & 0xF) != bits)
+      uint16_t bits = GPIOB->IDR & GPIO_PIN_4 | (GPIOB->IDR >> 12) & 0xF;
+      if ((usDiscreteBuf[0] & 0xFF) != bits)
       {
-        usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0xF) | bits;
+        usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0xFF) | bits;
       }
       for (uint8_t i = 5; i < 14; i++)
       {
@@ -623,43 +623,22 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pins : PB12 PB13 PB14 PB15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+  GPIO_InitStruct.Pin = GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15 | GPIO_PIN_3 | GPIO_PIN_4;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   GPIO_InitTypeDef GPIO_Init = {0};
-  GPIO_Init.Pin = GPIO_PIN_1;
+  GPIO_Init.Pin = GPIO_PIN_1 | GPIO_PIN_0;
   GPIO_Init.Mode = GPIO_MODE_ANALOG;
   GPIO_Init.Pull = GPIO_NOPULL;
   GPIO_Init.Speed = GPIO_SPEED_FREQ_LOW;
-
-  HAL_GPIO_Init(GPIOB, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_0;
   HAL_GPIO_Init(GPIOB, &GPIO_Init);
 
-  GPIO_Init.Pin = GPIO_PIN_1;
+  GPIO_Init.Pin = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
   HAL_GPIO_Init(GPIOA, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_2;
-  HAL_GPIO_Init(GPIOA, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_3;
-  HAL_GPIO_Init(GPIOA, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_4;
-  HAL_GPIO_Init(GPIOA, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_5;
-  HAL_GPIO_Init(GPIOA, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_6;
-  HAL_GPIO_Init(GPIOA, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_7;
-  HAL_GPIO_Init(GPIOA, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_0;
-  HAL_GPIO_Init(GPIOC, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_1;
-  HAL_GPIO_Init(GPIOC, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_2;
-  HAL_GPIO_Init(GPIOC, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_3;
+  GPIO_Init.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3;
   HAL_GPIO_Init(GPIOC, &GPIO_Init);
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -675,7 +654,7 @@ void SetHZ()
 void SetPulse()
 {
   // htim4.Instance->ARR = 72 * usRegHoldingBuf[2];
-  htim4.Instance->CCR1 = htim4.Instance->ARR - 72 * usRegHoldingBuf[1] / 10 - 7 * (usRegHoldingBuf[1] % 10);
+  htim4.Instance->CCR1 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10);
 }
 
 void StopTimers()
