@@ -55,7 +55,7 @@ uint16_t sum2;
 uint8_t frame_8int_V[2 * N_FRAMES];
 
 // A1, A2, A3, A4 - входы диф пар (1, 2, 3, 4 каналы)
-// A5, A6, A7, PB0, PB1, PC0, PC1, PC2, PC3 - входы для обычной оцифровки - (5, 6, 7, 8, 9, 10, 11, 12, 13 каналы)
+// A5, A6, A7, PB0, PB1, PC0, PC1, PC2, PC3 - входы для обычной оцифровки - (5, 6, 7, 8, -, 10, 11, 12, 13, 14 каналы)
 uint8_t adc1_ch;
 
 typedef enum
@@ -166,7 +166,6 @@ void MeasureVDD()
   ADC1->SQR3 = 17;
   ADC1->CR1 &= ~3 << 24;
   ADC1->CR2 &= ~(ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0);
-
   ADC1->CR2 |= ADC_CR2_SWSTART;
   while (!(ADC1->SR & ADC_SR_EOC))
     ;
@@ -256,6 +255,7 @@ int main(void)
       }
       for (uint8_t i = 5; i < 14; i++)
       {
+
         sum = 0;
         for (uint8_t j = 0; j < 10; j++)
         {
@@ -426,10 +426,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sSlaveConfig.SlaveMode = TIM_SLAVEMODE_TRIGGER;
-  sSlaveConfig.InputTrigger = TIM_TS_ETRF;
-  sSlaveConfig.TriggerPolarity = TIM_TRIGGERPOLARITY_NONINVERTED;
-  sSlaveConfig.TriggerPrescaler = TIM_TRIGGERPRESCALER_DIV1;
-  sSlaveConfig.TriggerFilter = 0;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR3;
   if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
@@ -441,7 +438,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
-  sConfigOC.Pulse = 0;
+  sConfigOC.Pulse = 1;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_OC_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
@@ -536,6 +533,10 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_OC_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (HAL_TIM_OnePulse_Init(&htim4, TIM_OPMODE_SINGLE) != HAL_OK)
   {
     Error_Handler();
@@ -546,7 +547,7 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_OC4REF;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
   {
@@ -562,6 +563,12 @@ static void MX_TIM4_Init(void)
   }
   sConfigOC.Pulse = 1;
   if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
+  sConfigOC.Pulse = 10;
+  if (HAL_TIM_OC_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
@@ -617,15 +624,15 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pins : PB12 PB13 PB14 PB15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15 | GPIO_PIN_3 | GPIO_PIN_4;
+  GPIO_InitStruct.Pin = GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -638,7 +645,7 @@ static void MX_GPIO_Init(void)
 
   GPIO_Init.Pin = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
   HAL_GPIO_Init(GPIOA, &GPIO_Init);
-  GPIO_Init.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3;
+  GPIO_Init.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4;
   HAL_GPIO_Init(GPIOC, &GPIO_Init);
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -655,12 +662,14 @@ void SetPulse()
 {
   // htim4.Instance->ARR = 72 * usRegHoldingBuf[2];
   htim4.Instance->CCR1 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10);
+  htim4.Instance->CCR4 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10) - 72;
 }
 
 void StopTimers()
 {
   HAL_TIM_Base_Stop(&htim3);
   HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
+  HAL_TIM_OC_Stop(&htim4, TIM_CHANNEL_4);
   HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_2);
 }
 
@@ -668,6 +677,7 @@ void StartTimers()
 {
   HAL_TIM_Base_Start(&htim3);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+  HAL_TIM_OC_Start(&htim4, TIM_CHANNEL_4);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
 }
 /* USER CODE END 4 */
