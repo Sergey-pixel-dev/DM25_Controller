@@ -48,8 +48,8 @@ extern "C"
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-#define N_FRAMES 720
-#define N_SAMPLES 2
+#define N_FRAMES 24
+#define N_SAMPLES 30
   /* USER CODE END EM */
 
   void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
@@ -64,10 +64,12 @@ extern "C"
   /* Private defines -----------------------------------------------------------*/
 
   /* USER CODE BEGIN Private defines */
-  extern uint16_t frame1[N_FRAMES];
+  extern uint16_t frame1[N_FRAMES * N_SAMPLES];
+  extern uint8_t i;
   extern uint16_t samples[8 * 10];
-  extern uint8_t frame_8int_V[2 * N_FRAMES];
+  extern uint8_t frame_8int_V[2 * N_FRAMES * N_SAMPLES];
   extern uint16_t vdda;
+
   /* USER CODE END Private defines */
 
 #ifdef __cplusplus

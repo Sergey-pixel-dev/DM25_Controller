@@ -49,10 +49,10 @@ UART_HandleTypeDef huart5;
 #define VREFINT_CAL_ADDR 0x1FFF7A2A
 uint16_t VREFINT_CAL;
 uint16_t vdda;
-uint16_t frame1[N_FRAMES];
+uint16_t frame1[N_FRAMES * N_SAMPLES];
 uint16_t sum;
 uint16_t sum2;
-uint8_t frame_8int_V[2 * N_FRAMES];
+uint8_t frame_8int_V[2 * N_SAMPLES * N_FRAMES];
 
 // A1, A2, A3, A4 - входы диф пар (1, 2, 3, 4 каналы)
 // A5, A6, A7, PB0, PB1, PC0, PC1, PC2, PC3 - входы для обычной оцифровки - (5, 6, 7, 8, -, 10, 11, 12, 13, 14 каналы)
@@ -69,6 +69,8 @@ OPERATIONS op;
 
 uint32_t last_tick = 0;
 uint32_t current_tick = 0;
+
+uint8_t i = 0;
 
 uint8_t RxData[256];
 uint8_t TxData[256];
@@ -89,35 +91,41 @@ static void MX_TIM4_Init(void);
 /* USER CODE BEGIN 0 */
 void ADC_init(void)
 {
-  RCC->APB2ENR |= RCC_APB2ENR_ADC1EN | RCC_APB2ENR_ADC2EN;
+  RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
   ADC->CCR |= ADC_CLOCK_SYNC_PCLK_DIV2;
 
   ADC1->CR1 = 0;
   ADC1->CR2 = 0;
-  ADC2->CR1 = 0;
-  ADC2->CR2 = 0;
 
-  ADC2->CR1 |= 2 << 24; // 8 -бит
+  ADC1->CR1 |= 0;
 
-  ADC1->SMPR1 = ADC_SMPR1_SMP17_2 | ADC_SMPR1_SMP17_1 | ADC_SMPR1_SMP17_0;
+  ADC1->SMPR1 = 0;
+  ADC1->SMPR1 |= ADC_SMPR1_SMP17_2 | ADC_SMPR1_SMP17_1 | ADC_SMPR1_SMP17_0;
   ADC1->SMPR2 = 0;
-  ADC2->SMPR1 = 0;
-  ADC2->SMPR2 = 0;
-
   ADC1->SQR1 = 0;
-  ADC1->SQR2 = 0;
-  ADC1->SQR3 = 0;
-  ADC2->SQR1 = 0;
-  ADC2->SQR2 = 0;
-  ADC2->SQR3 = 0;
-  ADC2->SMPR1 = ADC_SMPR1_SMP10_2 | ADC_SMPR1_SMP11_2 | ADC_SMPR1_SMP12_2 | ADC_SMPR1_SMP13_2;
-  ADC2->SMPR2 = ADC_SMPR2_SMP5_2 | ADC_SMPR2_SMP6_2 | ADC_SMPR2_SMP7_2 | ADC_SMPR2_SMP8_2 | ADC_SMPR2_SMP9_2;
-
+  ADC1->SQR3 = (17 << 0);
   ADC->CCR |= ADC_CCR_TSVREFE;
-  ADC1->CR2 |= ADC_CR2_EOCS;
-  ADC2->CR2 |= ADC_CR2_EOCS;
+  ADC1->CR2 |= ADC_CR2_EOCS; // EOC сразу после каждого преобразования
 }
+void ADC_DMA_Init(void)
+{
+  RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+  DMA2_Stream0->PAR = ADC1_BASE + 0x4C;
+  DMA2_Stream0->M0AR = (uint32_t)frame1;
+  DMA2_Stream0->NDTR = N_SAMPLES;
+  DMA2_Stream0->CR = 0;
 
+  DMA2_Stream0->CR |= DMA_PRIORITY_VERY_HIGH;
+  DMA2_Stream0->FCR = 0;
+
+  DMA2_Stream0->CR |= DMA_SxCR_MSIZE_0   // 16‑бит в памяти
+                      | DMA_SxCR_PSIZE_0 // 16‑бит на периферии
+                      | DMA_SxCR_MINC    // инкремент адреса памяти
+                      | DMA_SxCR_TCIE;   // прерывание по завершению
+
+  NVIC_SetPriority(DMA2_Stream0_IRQn, 0);
+  NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+}
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
   if (RxData[0] == SLAVE_ID)
@@ -163,9 +171,13 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
 void MeasureVDD()
 {
+  ADC1->CR2 &= ~ADC_CR2_CONT;
   ADC1->SQR3 = 17;
-  ADC1->CR1 &= ~3 << 24;
+  ADC1->CR1 &= ~2 << 24;
   ADC1->CR2 &= ~(ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0);
+  ADC1->DR;
+  ADC1->SR = 0;
+  HAL_Delay(1);
   ADC1->CR2 |= ADC_CR2_SWSTART;
   while (!(ADC1->SR & ADC_SR_EOC))
     ;
@@ -175,6 +187,8 @@ void MeasureVDD()
   ADC1->CR1 |= 2 << 24;
   ADC1->SQR3 = adc1_ch;
   ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0;
+  ADC1->CR2 |= ADC_CR2_CONT;
+  ADC1->SR = 0;
 }
 
 uint16_t ReadChannel(uint8_t channel)
@@ -222,6 +236,7 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   VREFINT_CAL = *(uint16_t *)VREFINT_CAL_ADDR;
+  ADC_DMA_Init();
   ADC_init();
 
   ADC1->CR2 |= ADC_CR2_ADON;
@@ -235,6 +250,13 @@ int main(void)
 
   MeasureVDD();
   op = OP_MODBUS;
+  usRegHoldingBuf[0] = 100;
+  usRegHoldingBuf[1] = 30;
+  usRegHoldingBuf[2] = 100;
+  usCoilsBuf[0] = 1;
+  SetPulse();
+  SetHZ();
+  StartTimers();
   HAL_UARTEx_ReceiveToIdle_IT(&huart5, RxData, 256);
   /* USER CODE END 2 */
 
@@ -244,7 +266,7 @@ int main(void)
   {
 
     current_tick = HAL_GetTick();
-    if (current_tick - last_tick > 500)
+    /* if (current_tick - last_tick > 500)
     {
 
       last_tick = current_tick;
@@ -263,7 +285,7 @@ int main(void)
         }
         usRegInputBuf[i - 5] = vdda * (sum / 10) / 0xFF;
       }
-    }
+    } */
     switch (op)
     {
     case OP_ADC:
@@ -272,62 +294,64 @@ int main(void)
       MeasureVDD();
       adc1_ch = RxData[1];
       ADC1->SQR3 = adc1_ch;
-      TIM2->CNT = 0;
+      memset(frame1, 0, N_FRAMES * N_SAMPLES);
+      memset(frame_8int_V, 0, 2 * N_FRAMES * N_SAMPLES);
+
+      i = 0;
       TIM2->CCR2 = 1;
+      ADC1->CR2 &= ~ADC_CR2_DMA;
+      DMA2_Stream0->CR &= ~DMA_SxCR_EN;
+      while (DMA2_Stream0->CR & DMA_SxCR_EN)
+        ;
+      DMA2_Stream0->M0AR = (uint32_t)frame1;
+      DMA2_Stream0->NDTR = N_SAMPLES;
+      DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
+      DMA2_Stream0->CR |= DMA_SxCR_EN;
+      while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
+        ;
       ADC1->SR = 0;
-      memset(frame1, 0, N_FRAMES);
+      ADC1->CR2 |= ADC_CR2_DMA;
       ADC1->CR2 |= ADC_CR2_EXTEN;
-      for (uint16_t i = 0; i < N_FRAMES; i++)
-      {
-        sum = 0;
-        for (uint8_t j = 0; j < N_SAMPLES; j++)
-        {
-          while (!(ADC1->SR & ADC_SR_EOC))
-            ;
-          sum += ADC1->DR;
-        }
-        frame1[i] = sum / N_SAMPLES;
-        TIM2->CCR2 += 1;
-      }
-      ADC1->CR2 &= ~ADC_CR2_EXTEN;
-      for (uint16_t i = 0; i < N_FRAMES; i++)
+      while (i < N_FRAMES)
+        ;
+      for (uint16_t i = 0; i < N_FRAMES * N_SAMPLES; i++)
       {
         uint16_t word = vdda * frame1[i] / 0xFF;
         frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
         frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
       }
-      HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES, HAL_MAX_DELAY);
+      HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES * N_SAMPLES, HAL_MAX_DELAY);
       break;
     }
-    case OP_AVERAGE:
-    {
-      op = OP_NONE;
-      MeasureVDD();
-      adc1_ch = RxData[1];
-      ADC1->SQR3 = adc1_ch;
-
-      uint16_t i_offset = RxData[2] | RxData[3] << 8;
-      uint16_t sum = 0;
-      TIM2->CNT = 0;
-      TIM2->CCR2 = i_offset;
-      ADC1->SR = 0;
-      ADC2->SR = 0;
-      ADC1->CR2 |= ADC_CR2_EXTEN;
-      for (uint16_t i = 0; i < 100; i++)
+      /* case OP_AVERAGE:
       {
-        while (!(ADC1->SR & ADC_SR_EOC))
+        op = OP_NONE;
+        MeasureVDD();
+        adc1_ch = RxData[1];
+        ADC1->SQR3 = adc1_ch;
+
+        uint16_t i_offset = RxData[2] | RxData[3] << 8;
+        uint16_t sum = 0;
+        TIM2->CNT = 0;
+        TIM2->CCR2 = i_offset;
+        ADC1->SR = 0;
+        ADC2->SR = 0;
+        ADC1->CR2 |= ADC_CR2_EXTEN;
+        for (uint16_t i = 0; i < 100; i++)
+        {
+          while (!(ADC1->SR & ADC_SR_EOC))
+            ;
           ;
-        ;
-        sum += ADC1->DR;
-      }
-      ADC1->CR2 &= ~ADC_CR2_EXTEN;
-      uint16_t average = vdda * (sum / 100) / 0xFF;
-      uint8_t raw_average[2];
-      raw_average[0] = (uint8_t)average & 0xFF;
-      raw_average[1] = (uint8_t)(average >> 8) & 0xFF;
-      HAL_UART_Transmit(&huart5, raw_average, 2, HAL_MAX_DELAY);
-      break;
-    }
+          sum += ADC1->DR;
+        }
+        ADC1->CR2 &= ~ADC_CR2_EXTEN;
+        uint16_t average = vdda * (sum / 100) / 0xFF;
+        uint8_t raw_average[2];
+        raw_average[0] = (uint8_t)average & 0xFF;
+        raw_average[1] = (uint8_t)(average >> 8) & 0xFF;
+        HAL_UART_Transmit(&huart5, raw_average, 2, HAL_MAX_DELAY);
+        break;
+      } */
     }
 
     /* USER CODE END WHILE */
@@ -662,7 +686,7 @@ void SetPulse()
 {
   // htim4.Instance->ARR = 72 * usRegHoldingBuf[2];
   htim4.Instance->CCR1 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10);
-  htim4.Instance->CCR4 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10) - 72;
+  htim4.Instance->CCR4 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10) - 144;
 }
 
 void StopTimers()
