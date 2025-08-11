@@ -235,17 +235,17 @@ void DMA2_Stream0_IRQHandler(void)
     ADC1->CR2 &= ~ADC_CR2_EXTEN;
     DMA2->LIFCR |= DMA_LIFCR_CTCIF0;
     i++;
-    if (i < N_FRAMES)
+    if (i < MAX_N_FRAMES)
     {
       ADC1->CR2 &= ~ADC_CR2_DMA;
 
       DMA2_Stream0->CR &= ~DMA_SxCR_EN;
       while (DMA2_Stream0->CR & DMA_SxCR_EN)
         ;
-      DMA2_Stream0->M0AR = (uint32_t)(frame1 + i * N_SAMPLES);
-      DMA2_Stream0->NDTR = N_SAMPLES;
+      DMA2_Stream0->M0AR = (uint32_t)(frame1 + i * n_samples);
+      DMA2_Stream0->NDTR = n_samples;
       DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
-      ADC1->DR;
+      // ADC1->DR;
       ADC1->SR = 0;
       DMA2_Stream0->CR |= DMA_SxCR_EN;
       while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
