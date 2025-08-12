@@ -65,7 +65,7 @@ extern "C"
 
   /* USER CODE BEGIN Private defines */
   extern uint16_t n_samples;
-  extern uint16_t frame1[MAX_N_FRAMES * MAX_N_SAMPLES];
+  extern uint16_t frame[MAX_N_FRAMES * MAX_N_SAMPLES];
   extern uint8_t i;
   extern uint16_t samples[8 * 10];
   extern uint8_t frame_8int_V[2 * MAX_N_FRAMES * MAX_N_SAMPLES];

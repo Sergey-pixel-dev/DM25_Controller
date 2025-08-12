@@ -49,7 +49,7 @@ UART_HandleTypeDef huart5;
 #define VREFINT_CAL_ADDR 0x1FFF7A2A
 uint16_t VREFINT_CAL;
 uint16_t vdda;
-uint16_t frame1[MAX_N_FRAMES * MAX_N_SAMPLES];
+uint16_t frame[MAX_N_FRAMES * MAX_N_SAMPLES];
 uint32_t sum;
 uint8_t frame_8int_V[2 * MAX_N_SAMPLES * MAX_N_FRAMES];
 
@@ -63,8 +63,9 @@ typedef enum
 {
   OP_NONE = 0x00,
   OP_MODBUS = 0x10, // == SLAVE_ID
-  OP_ADC = 0x01,
+  OP_ADC_START = 0x01,
   OP_AVERAGE = 0x02,
+  OP_ADC_STOP = 0x03
 } OPERATIONS;
 OPERATIONS op;
 
@@ -87,7 +88,6 @@ static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
-
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 void ADC_init(void)
@@ -124,7 +124,7 @@ void ADC_DMA_Init(void)
 {
   RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
   DMA2_Stream0->PAR = ADC1_BASE + 0x4C;
-  DMA2_Stream0->M0AR = (uint32_t)frame1;
+  DMA2_Stream0->M0AR = (uint32_t)frame;
   DMA2_Stream0->NDTR = n_samples;
   DMA2_Stream0->CR = 0;
 
@@ -174,7 +174,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
       break;
     }
   }
-  else if (RxData[0] <= 0x02)
+  else if (RxData[0] <= 0x03)
   {
     op = RxData[0];
   }
@@ -301,42 +301,46 @@ int main(void)
     }
     switch (op)
     {
-    case OP_ADC:
+    case OP_ADC_START:
     {
       op = OP_NONE;
       MeasureVDD();
       adc1_ch = RxData[1];
       n_samples = RxData[2];
       ADC1->SQR3 = adc1_ch;
-
-      memset(frame1, 0, MAX_N_FRAMES * MAX_N_SAMPLES);
-      memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * MAX_N_SAMPLES);
-      i = 0;
       TIM2->ARR = 100;
-      TIM2->CCR2 = 1;
-      ADC1->CR2 &= ~ADC_CR2_DMA;
-      DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-      while (DMA2_Stream0->CR & DMA_SxCR_EN)
-        ;
-      DMA2_Stream0->M0AR = (uint32_t)(frame1);
-      DMA2_Stream0->NDTR = n_samples;
-      DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
-      DMA2_Stream0->CR |= DMA_SxCR_EN;
-      while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
-        ;
-      ADC1->SR = 0;
-      ADC1->CR2 |= ADC_CR2_DMA;
-      ADC1->CR2 |= ADC_CR2_EXTEN;
-      while (i < MAX_N_FRAMES)
-        ;
-      for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
+      while (op != OP_ADC_STOP)
       {
-        uint16_t word = vdda * frame1[i] / 1024;
-        frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
-        frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
+        memset(frame, 0, MAX_N_FRAMES * MAX_N_SAMPLES);
+        memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * MAX_N_SAMPLES);
+        i = 0;
+        TIM2->CCR2 = 1;
+        ADC1->CR2 &= ~ADC_CR2_DMA;
+        DMA2_Stream0->CR &= ~DMA_SxCR_EN;
+        while (DMA2_Stream0->CR & DMA_SxCR_EN)
+          ;
+        DMA2_Stream0->M0AR = (uint32_t)(frame);
+        DMA2_Stream0->NDTR = n_samples;
+        DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
+        DMA2_Stream0->CR |= DMA_SxCR_EN;
+        while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
+          ;
+        ADC1->SR = 0;
+        ADC1->CR2 |= ADC_CR2_DMA;
+        ADC1->CR2 |= ADC_CR2_EXTEN;
+        while (i < MAX_N_FRAMES)
+          ;
+        for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
+        {
+          uint16_t word = vdda * frame[i] / 1024;
+          frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
+          frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
+        }
+        if (op != OP_ADC_STOP)
+        {
+          HAL_UART_Transmit(&huart5, frame_8int_V, 2 * MAX_N_FRAMES * n_samples, HAL_MAX_DELAY);
+        }
       }
-
-      HAL_UART_Transmit(&huart5, frame_8int_V, 2 * MAX_N_FRAMES * n_samples, HAL_MAX_DELAY);
       break;
     }
     case OP_AVERAGE:
