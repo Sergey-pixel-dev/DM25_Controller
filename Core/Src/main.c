@@ -100,8 +100,6 @@ void ADC_init(void)
   ADC2->CR1 = 0;
   ADC2->CR2 = 0;
 
-  ADC2->CR1 |= 1 << 24; // 10 -бит
-
   ADC1->SMPR1 = ADC_SMPR1_SMP17_2 | ADC_SMPR1_SMP17_1 | ADC_SMPR1_SMP17_0;
   ADC1->SMPR2 = 0;
   ADC2->SMPR1 = 0;
@@ -277,7 +275,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
     current_tick = HAL_GetTick();
     if (current_tick - last_tick > 500)
     {
@@ -296,7 +293,7 @@ int main(void)
         {
           sum += ReadChannel(i);
         }
-        usRegInputBuf[i - 5] = vdda * (sum / 10) / 1024;
+        usRegInputBuf[i - 5] = vdda * (sum / 10) / 0xFFF;
       }
     }
     switch (op)
