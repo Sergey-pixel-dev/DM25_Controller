@@ -68,15 +68,10 @@ typedef enum
   OP_AVERAGE = 0x02,
   OP_ADC_STOP = 0x03
 } OPERATIONS;
-OPERATIONS op;
-volatile uint8_t force_adc_stop = 0; // нужна чисто для реализации логики остановки adc при вкл. modbus
-uint32_t last_tick = 0;
-uint32_t current_tick = 0;
-
-uint8_t isADCstarted = 0;
+volatile OPERATIONS op;
 
 uint8_t i = 0;
-uint8_t dma_flag = 0;
+uint8_t next_op_modbus = 0; // 1 после остановки adc отправляем сразу modbus (чтоб op_stop_adc не перезаписывался)
 
 uint8_t RxData[256];
 uint8_t TxData[256];
@@ -145,20 +140,25 @@ void ADC_DMA_Init(void)
 }
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
-  if (RxData[0] == OP_ADC_STOP)
+  if (RxData[0] == SLAVE_ID)
   {
-    force_adc_stop = 1;
-    op = OP_ADC_STOP;
-  }
-  else if (RxData[0] <= 0x03 && RxData[0] > 0x00)
-  {
-    op = RxData[0]; // OP_ADC_START, OP_AVERAGE
-  }
-  else if (RxData[0] == SLAVE_ID)
-  {
-    if (!force_adc_stop)
-    {
+    if (op == OP_ADC_STOP)
+      next_op_modbus = 1;
+    else
       op = OP_MODBUS;
+  }
+  else if (RxData[0] <= 0x03)
+  {
+    if (op == OP_MODBUS)
+      next_op_modbus = 1;
+
+    if (RxData[0] == 0x03)
+    {
+      op = OP_ADC_STOP;
+    }
+    else if (op != OP_ADC_STOP)
+    {
+      op = RxData[0];
     }
   }
 
@@ -232,7 +232,7 @@ uint16_t ReadChannel(uint8_t channel)
 
 void UpdateValuesMB()
 {
-  MeasureVDD();
+  // MeasureVDD();
   uint16_t bits = GPIOB->IDR & GPIO_PIN_4 | (GPIOB->IDR >> 12) & 0xF;
   if ((usDiscreteBuf[0] & 0xFF) != bits)
   {
@@ -308,7 +308,6 @@ int main(void)
   usCoilsBuf[0] = 1;
   SetPulse();
   SetHZ();
-  // StopTimers();
   StartTimers();
   HAL_UARTEx_ReceiveToIdle_IT(&huart5, RxData, 256);
   /* USER CODE END 2 */
@@ -317,30 +316,19 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    // current_tick = HAL_GetTick();
-    // if (current_tick - last_tick > 500)
-    // {
-
-    //   last_tick = current_tick;
-    //   UpdateValuesMB();
-    // }
     switch (op)
     {
     case OP_ADC_START:
     {
-      if (usCoilsBuf[0] & 0x01 == 0) // нет сигнала - оцифровки не будет!
-        break;
-      op = OP_NONE;
-      force_adc_stop = 0;
+      memset(frame, 0, MAX_N_FRAMES * n_samples);
+      memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * n_samples + 4);
       MeasureVDD();
       adc1_ch = RxData[1];
       n_samples = RxData[2];
       ADC1->SQR3 = adc1_ch;
       TIM2->ARR = 100;
-      while (op != OP_ADC_STOP || force_adc_stop)
+      while (op != OP_ADC_STOP)
       {
-        memset(frame, 0, MAX_N_FRAMES * n_samples);
-        memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * n_samples + 4);
         i = 0;
         TIM2->CCR2 = 1;
         ADC1->CR2 &= ~ADC_CR2_DMA;
@@ -362,11 +350,6 @@ int main(void)
         {
           UpdateValuesMB();
           HandleModbusRequest();
-          op = OP_NONE;
-        }
-        if (force_adc_stop)
-        {
-          break;
         }
         if (op != OP_ADC_STOP)
         {
@@ -381,15 +364,27 @@ int main(void)
           frame_8int_V[2 * MAX_N_FRAMES * n_samples + 2] = 0x55;
           frame_8int_V[2 * MAX_N_FRAMES * n_samples + 3] = 0xAA;
           HAL_UART_Transmit(&huart5, frame_8int_V, 2 * MAX_N_FRAMES * n_samples + 4, HAL_MAX_DELAY);
+
+          if (op != OP_ADC_STOP)
+          {
+            op = OP_NONE;
+          }
         }
       }
-      force_adc_stop = 0;
+      op = OP_NONE; // Безусловный сброс после выхода из цикла
+      if (next_op_modbus)
+      {
+        next_op_modbus = 0;
+        UpdateValuesMB();
+        HandleModbusRequest();
+      }
       break;
     }
     case OP_MODBUS:
-      op = OP_NONE;
+      MeasureVDD();
       UpdateValuesMB();
       HandleModbusRequest();
+      op = OP_NONE;
       break;
     }
 
