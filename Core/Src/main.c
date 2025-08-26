@@ -71,6 +71,7 @@ typedef enum
 volatile OPERATIONS op;
 
 uint8_t i = 0;
+volatile uint8_t uart5_dma_busy = 0;
 uint8_t next_op_modbus = 0; // 1 после остановки adc отправляем сразу modbus (чтоб op_stop_adc не перезаписывался)
 
 uint8_t RxData[256];
@@ -250,6 +251,20 @@ void UpdateValuesMB()
   }
 }
 
+void UART5_Transmit_DMA_Blocking(uint8_t *data, uint16_t size)
+{
+  while (uart5_dma_busy)
+  {
+  }
+
+  uart5_dma_busy = 1;
+
+  HAL_UART_Transmit_DMA(&huart5, data, size);
+
+  while (uart5_dma_busy)
+  {
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -327,8 +342,13 @@ int main(void)
       n_samples = RxData[2];
       ADC1->SQR3 = adc1_ch;
       TIM2->ARR = 100;
+      frame_8int_V[0] = 0xAA;
+      frame_8int_V[1] = 0x55;
+      frame_8int_V[2 * MAX_N_FRAMES * n_samples + 2] = 0x55;
+      frame_8int_V[2 * MAX_N_FRAMES * n_samples + 3] = 0xAA;
       while (op != OP_ADC_STOP)
       {
+
         i = 0;
         TIM2->CCR2 = 1;
         ADC1->CR2 &= ~ADC_CR2_DMA;
@@ -344,31 +364,35 @@ int main(void)
         ADC1->SR = 0;
         ADC1->CR2 |= ADC_CR2_DMA;
         ADC1->CR2 |= ADC_CR2_EXTEN;
+
         while (i < MAX_N_FRAMES)
-          ;
+        {
+
+          if (op == OP_MODBUS)
+          {
+            UpdateValuesMB();
+            HandleModbusRequest();
+            if (op != OP_ADC_STOP)
+              op = OP_NONE;
+          }
+        }
         if (op == OP_MODBUS)
         {
           UpdateValuesMB();
           HandleModbusRequest();
+          if (op != OP_ADC_STOP)
+            op = OP_NONE;
         }
         if (op != OP_ADC_STOP)
         {
-          frame_8int_V[0] = 0xAA;
-          frame_8int_V[1] = 0x55;
+
           for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
           {
             uint16_t word = vdda * frame[i] / 1024;
             frame_8int_V[2 + 2 * i] = (uint8_t)(word & 0xFF);
             frame_8int_V[2 + 2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
           }
-          frame_8int_V[2 * MAX_N_FRAMES * n_samples + 2] = 0x55;
-          frame_8int_V[2 * MAX_N_FRAMES * n_samples + 3] = 0xAA;
-          HAL_UART_Transmit(&huart5, frame_8int_V, 2 * MAX_N_FRAMES * n_samples + 4, HAL_MAX_DELAY);
-
-          if (op != OP_ADC_STOP)
-          {
-            op = OP_NONE;
-          }
+          UART5_Transmit_DMA_Blocking(frame_8int_V, 2 * MAX_N_FRAMES * n_samples + 4);
         }
       }
       op = OP_NONE; // Безусловный сброс после выхода из цикла
@@ -752,6 +776,13 @@ void StartTimers()
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
   HAL_TIM_OC_Start(&htim4, TIM_CHANNEL_4);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
+}
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == UART5)
+  {
+    uart5_dma_busy = 0; // Передача завершена
+  }
 }
 /* USER CODE END 4 */
 

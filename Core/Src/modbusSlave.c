@@ -7,7 +7,7 @@
 
 #include "modbusSlave.h"
 #include "string.h"
-
+#include "main.h"
 extern uint8_t RxData[256];
 extern uint8_t TxData[256];
 extern UART_HandleTypeDef huart5;
@@ -31,7 +31,7 @@ void sendData(uint8_t *data, int size)
 	data[size] = crc & 0xFF;			// CRC LOW
 	data[size + 1] = (crc >> 8) & 0xFF; // CRC HIGH
 
-	HAL_UART_Transmit(&huart5, data, size + 2, 1000);
+	UART5_Transmit_DMA_Blocking(data, size + 2);
 }
 
 void modbusException(uint8_t exceptioncode)
