@@ -58,21 +58,9 @@ uint16_t n_samples = MAX_N_SAMPLES;
 
 // A1, A2, A3, A4 - входы диф пар (1, 2, 3, 4 каналы)
 // A5, A6, A7, PB0, PB1, PC0, PC1, PC2, PC3 - входы для обычной оцифровки - (5, 6, 7, 8, -, 10, 11, 12, 13, 14 каналы)
-uint8_t adc1_ch;
-
-typedef enum
-{
-  OP_NONE = 0x00,
-  OP_MODBUS = 0x10, // == SLAVE_ID
-  OP_ADC_START = 0x01,
-  OP_AVERAGE = 0x02,
-  OP_ADC_STOP = 0x03
-} OPERATIONS;
-volatile OPERATIONS op;
 
 uint8_t i = 0;
 volatile uint8_t uart5_dma_busy = 0;
-uint8_t next_op_modbus = 0; // 1 после остановки adc отправляем сразу modbus (чтоб op_stop_adc не перезаписывался)
 
 uint8_t RxData[256];
 uint8_t TxData[256];
@@ -143,26 +131,38 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
   if (RxData[0] == SLAVE_ID)
   {
-    if (op == OP_ADC_STOP)
-      next_op_modbus = 1;
-    else
-      op = OP_MODBUS;
-  }
-  else if (RxData[0] <= 0x03)
-  {
-    if (op == OP_MODBUS)
-      next_op_modbus = 1;
-
-    if (RxData[0] == 0x03)
+    switch (RxData[1])
     {
-      op = OP_ADC_STOP;
-    }
-    else if (op != OP_ADC_STOP)
-    {
-      op = RxData[0];
+    case 0x03:
+      readHoldingRegs();
+      break;
+    case 0x04:
+      UpdateValuesMB();
+      readInputRegs();
+      break;
+    case 0x01:
+      readCoils();
+      break;
+    case 0x02:
+      readInputs();
+      break;
+    case 0x06:
+      writeSingleReg();
+      break;
+    case 0x10:
+      writeHoldingRegs();
+      break;
+    case 0x05:
+      writeSingleCoil();
+      break;
+    case 0x0F:
+      writeMultiCoils();
+      break;
+    default:
+      modbusException(ILLEGAL_FUNCTION);
+      break;
     }
   }
-
   HAL_UARTEx_ReceiveToIdle_IT(&huart5, RxData, 256);
 }
 
@@ -174,7 +174,7 @@ void MeasureVDD()
   ADC1->CR2 &= ~(ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0);
   ADC1->DR;
   ADC1->SR = 0;
-  HAL_Delay(1);
+  // HAL_Delay(1);
   ADC1->CR2 |= ADC_CR2_SWSTART;
   while (!(ADC1->SR & ADC_SR_EOC))
     ;
@@ -182,46 +182,25 @@ void MeasureVDD()
   vdda = (3300 * VREFINT_CAL) / raw_vrefint;
 
   ADC1->CR1 |= 1 << 24;
-  ADC1->SQR3 = adc1_ch;
+  ADC1->SQR3 = usRegHoldingBuf[2];
   ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0;
   ADC1->CR2 |= ADC_CR2_CONT;
   ADC1->SR = 0;
 }
 
-void HandleModbusRequest()
+void PrepareADC()
 {
-  switch (RxData[1])
-  {
-  case 0x03:
-    readHoldingRegs();
-    break;
-  case 0x04:
-    readInputRegs();
-    break;
-  case 0x01:
-    readCoils();
-    break;
-  case 0x02:
-    readInputs();
-    break;
-  case 0x06:
-    writeSingleReg();
-    break;
-  case 0x10:
-    writeHoldingRegs();
-    break;
-  case 0x05:
-    writeSingleCoil();
-    break;
-  case 0x0F:
-    writeMultiCoils();
-    break;
-  default:
-    modbusException(ILLEGAL_FUNCTION);
-    break;
-  }
+  memset(frame, 0, MAX_N_FRAMES * n_samples);
+  memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * n_samples + 4);
+  MeasureVDD();
+  n_samples = usRegHoldingBuf[3];
+  ADC1->SQR3 = usRegHoldingBuf[2];
+  TIM2->ARR = 100;
+  frame_8int_V[0] = 0xAA;
+  frame_8int_V[1] = 0x55;
+  frame_8int_V[2 * MAX_N_FRAMES * n_samples + 2] = 0x55;
+  frame_8int_V[2 * MAX_N_FRAMES * n_samples + 3] = 0xAA;
 }
-
 uint16_t ReadChannel(uint8_t channel)
 {
   ADC2->SQR3 = channel;
@@ -253,17 +232,9 @@ void UpdateValuesMB()
 
 void UART5_Transmit_DMA_Blocking(uint8_t *data, uint16_t size)
 {
-  while (uart5_dma_busy)
-  {
-  }
-
-  uart5_dma_busy = 1;
-
+  while (hdma_uart5_tx.State == HAL_DMA_STATE_BUSY)
+    ;
   HAL_UART_Transmit_DMA(&huart5, data, size);
-
-  while (uart5_dma_busy)
-  {
-  }
 }
 /* USER CODE END 0 */
 
@@ -316,11 +287,11 @@ int main(void)
   TIM2->CCER |= TIM_CCER_CC2E;
 
   MeasureVDD();
-  op = OP_NONE;
   usRegHoldingBuf[0] = 100;
   usRegHoldingBuf[1] = 30;
-  usRegHoldingBuf[2] = 0;
   usCoilsBuf[0] = 1;
+  usRegHoldingBuf[2] = 1;
+  usRegHoldingBuf[3] = 24;
   SetPulse();
   SetHZ();
   StartTimers();
@@ -331,85 +302,35 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    switch (op)
+    while (usCoilsBuf[0] & 0x02)
     {
-    case OP_ADC_START:
-    {
-      memset(frame, 0, MAX_N_FRAMES * n_samples);
-      memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * n_samples + 4);
-      MeasureVDD();
-      adc1_ch = RxData[1];
-      n_samples = RxData[2];
-      ADC1->SQR3 = adc1_ch;
-      TIM2->ARR = 100;
-      frame_8int_V[0] = 0xAA;
-      frame_8int_V[1] = 0x55;
-      frame_8int_V[2 * MAX_N_FRAMES * n_samples + 2] = 0x55;
-      frame_8int_V[2 * MAX_N_FRAMES * n_samples + 3] = 0xAA;
-      while (op != OP_ADC_STOP)
+
+      i = 0;
+      TIM2->CCR2 = 1;
+      ADC1->CR2 &= ~ADC_CR2_DMA;
+      DMA2_Stream0->CR &= ~DMA_SxCR_EN;
+      while (DMA2_Stream0->CR & DMA_SxCR_EN)
+        ;
+      DMA2_Stream0->M0AR = (uint32_t)(frame);
+      DMA2_Stream0->NDTR = n_samples;
+      DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
+      DMA2_Stream0->CR |= DMA_SxCR_EN;
+      while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
+        ;
+      ADC1->SR = 0;
+      ADC1->CR2 |= ADC_CR2_DMA;
+      ADC1->CR2 |= ADC_CR2_EXTEN;
+
+      while (i < MAX_N_FRAMES)
+        ;
+
+      for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
       {
-
-        i = 0;
-        TIM2->CCR2 = 1;
-        ADC1->CR2 &= ~ADC_CR2_DMA;
-        DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-        while (DMA2_Stream0->CR & DMA_SxCR_EN)
-          ;
-        DMA2_Stream0->M0AR = (uint32_t)(frame);
-        DMA2_Stream0->NDTR = n_samples;
-        DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
-        DMA2_Stream0->CR |= DMA_SxCR_EN;
-        while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
-          ;
-        ADC1->SR = 0;
-        ADC1->CR2 |= ADC_CR2_DMA;
-        ADC1->CR2 |= ADC_CR2_EXTEN;
-
-        while (i < MAX_N_FRAMES)
-        {
-
-          if (op == OP_MODBUS)
-          {
-            UpdateValuesMB();
-            HandleModbusRequest();
-            if (op != OP_ADC_STOP)
-              op = OP_NONE;
-          }
-        }
-        if (op == OP_MODBUS)
-        {
-          UpdateValuesMB();
-          HandleModbusRequest();
-          if (op != OP_ADC_STOP)
-            op = OP_NONE;
-        }
-        if (op != OP_ADC_STOP)
-        {
-
-          for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
-          {
-            uint16_t word = vdda * frame[i] / 1024;
-            frame_8int_V[2 + 2 * i] = (uint8_t)(word & 0xFF);
-            frame_8int_V[2 + 2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
-          }
-          UART5_Transmit_DMA_Blocking(frame_8int_V, 2 * MAX_N_FRAMES * n_samples + 4);
-        }
+        uint16_t word = vdda * frame[i] / 1024;
+        frame_8int_V[2 + 2 * i] = (uint8_t)(word & 0xFF);
+        frame_8int_V[2 + 2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
       }
-      op = OP_NONE; // Безусловный сброс после выхода из цикла
-      if (next_op_modbus)
-      {
-        next_op_modbus = 0;
-        UpdateValuesMB();
-        HandleModbusRequest();
-      }
-      break;
-    }
-    case OP_MODBUS:
-      MeasureVDD();
-      UpdateValuesMB();
-      HandleModbusRequest();
-      op = OP_NONE;
-      break;
+      UART5_Transmit_DMA_Blocking(frame_8int_V, 2 * MAX_N_FRAMES * n_samples + 4);
     }
 
     /* USER CODE END WHILE */
@@ -703,7 +624,7 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Stream7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
 }
 

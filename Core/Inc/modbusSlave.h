@@ -21,19 +21,19 @@
 #define REG_HOLDING_START 41001
 #define COILS_START 00001
 #define DISCRETE_START 10001
-#define COILS_N 1
+#define COILS_N 2
 #define DISCRETE_N 5
-#define REG_INPUT_NREGS 58
-#define REG_HOLDING_NREGS 39
+#define REG_INPUT_NREGS 9
+#define REG_HOLDING_NREGS 4
 
 extern uint16_t usRegInputBuf[REG_INPUT_NREGS];
 // index 0 - 8: входы IN0-IN8
 
 extern uint16_t usRegHoldingBuf[REG_HOLDING_NREGS];
-// 0 - HZ, 1 -длительность импулсьа, 2 - интервал
+// 0 - HZ, 1 -длительность импульса, 2 - channel ацп, 3 - n_samples
 
 extern uint16_t usCoilsBuf[1];
-// X0000000 00000000 - 1, - ВКЛ ИМПУЛЬС
+// XX000000 00000000 - 0 - ВКЛ ИМПУЛЬС, 1 - ВКЛ АЦП
 
 extern uint16_t usDiscreteBuf[1];
 // XXXX0000 00000000,

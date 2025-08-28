@@ -15,10 +15,10 @@ extern UART_HandleTypeDef huart5;
 
 uint16_t usRegInputBuf[REG_INPUT_NREGS];
 
-// 0 - HZ, 1 -длительность импулсьа, 2 - интервал
+// 0 - HZ, 1 - длительность импульса, 2 - channel ацп, 3 - n_samples
 uint16_t usRegHoldingBuf[REG_HOLDING_NREGS];
 
-// X0000000 00000000 - 1, - ВКЛ ИМПУЛЬС
+// XX000000 00000000 - 0 - ВКЛ ИМПУЛЬС, 1 - ВКЛ АЦП
 uint16_t usCoilsBuf[1];
 // XXXX0000 00000000,
 // 1, 2, 3, 4 по порядку - ВКЛ БЛОК НАКАЛА, ВКЛ У.Э., ВКЛ -25кВ, ВКЛ HE, LE, БЛОК ГОТОВ
@@ -290,7 +290,7 @@ uint8_t writeHoldingRegs(void)
 		numRegs--;
 	}
 
-	if (startAddr - REG_HOLDING_START <= 2)
+	if (startAddr - REG_HOLDING_START <= 1)
 	{
 		SetHZ();
 		SetPulse();
@@ -456,6 +456,11 @@ uint8_t writeMultiCoils(void)
 			StartTimers();
 		else
 			StopTimers();
+	}
+	if (startAddr + numCoils >= COILS_START + 1 && startAddr <= COILS_START + 1)
+	{
+		if (READ_BIT(*usCoilsBuf, 1 << 1))
+			PrepareADC();
 	}
 	// Prepare Response
 
