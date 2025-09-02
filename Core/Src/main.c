@@ -213,10 +213,16 @@ uint16_t ReadChannel(uint8_t channel)
 void UpdateValuesMB()
 {
   // MeasureVDD();
-  uint16_t bits = GPIOB->IDR & GPIO_PIN_4 | (GPIOB->IDR >> 12) & 0xF;
-  if ((usDiscreteBuf[0] & 0xFF) != bits)
+  uint16_t idr = GPIOB->IDR;
+  uint8_t new_bits =
+      ((idr >> 12) & 0x01) << 0 | /* PB12 → bit0 */
+      ((idr >> 13) & 0x01) << 1 | /* PB13 → bit1 */
+      ((idr >> 14) & 0x01) << 2 | /* PB14 → bit2 */
+      ((idr >> 15) & 0x01) << 3 | /* PB15 → bit3 */
+      ((idr >> 4) & 0x01) << 4;   /* PB4  → bit4 */
+  if ((usDiscreteBuf[0] & 0x1F) != new_bits)
   {
-    usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0xFF) | bits;
+    usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0x1F) | new_bits;
   }
   for (uint8_t i = 5; i < 14; i++)
   {
@@ -302,44 +308,50 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    while (usCoilsBuf[0] & 0x02)
+    if (usCoilsBuf[0] & 0x02)
     {
-
-      i = 0;
-      TIM2->CCR2 = 1;
-      ADC1->CR2 &= ~ADC_CR2_DMA;
-      DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-      while (DMA2_Stream0->CR & DMA_SxCR_EN)
-        ;
-      DMA2_Stream0->M0AR = (uint32_t)(frame);
-      DMA2_Stream0->NDTR = n_samples;
-      DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
-      DMA2_Stream0->CR |= DMA_SxCR_EN;
-      while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
-        ;
-      ADC1->SR = 0;
-      ADC1->CR2 |= ADC_CR2_DMA;
-      ADC1->CR2 |= ADC_CR2_EXTEN;
-
-      while (i < MAX_N_FRAMES)
-        ;
-
-      for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
+      usDiscreteBuf[0] |= 0x20;
+      while (usCoilsBuf[0] & 0x02)
       {
-        uint16_t word = vdda * frame[i] / 1024;
-        frame_8int_V[2 + 2 * i] = (uint8_t)(word & 0xFF);
-        frame_8int_V[2 + 2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
+        i = 0;
+        TIM2->CCR2 = 1;
+        ADC1->CR2 &= ~ADC_CR2_DMA;
+        DMA2_Stream0->CR &= ~DMA_SxCR_EN;
+        while (DMA2_Stream0->CR & DMA_SxCR_EN)
+          ;
+        DMA2_Stream0->M0AR = (uint32_t)(frame);
+        DMA2_Stream0->NDTR = n_samples;
+        DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
+        DMA2_Stream0->CR |= DMA_SxCR_EN;
+        while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
+          ;
+        ADC1->SR = 0;
+        ADC1->CR2 |= ADC_CR2_DMA;
+        ADC1->CR2 |= ADC_CR2_EXTEN;
+
+        while (i < MAX_N_FRAMES && usCoilsBuf[0] & 0x02)
+          ;
+        if (usCoilsBuf[0] & 0x02)
+        {
+          for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
+          {
+            uint16_t word = vdda * frame[i] / 1024;
+            frame_8int_V[2 + 2 * i] = (uint8_t)(word & 0xFF);
+            frame_8int_V[2 + 2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
+          }
+          UART5_Transmit_DMA_Blocking(frame_8int_V, 2 * MAX_N_FRAMES * n_samples + 4);
+        }
       }
-      UART5_Transmit_DMA_Blocking(frame_8int_V, 2 * MAX_N_FRAMES * n_samples + 4);
+      usDiscreteBuf[0] &= ~0x20;
     }
-
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-
-    /* USER CODE END 3 */
   }
+  /* USER CODE END WHILE */
+
+  /* USER CODE BEGIN 3 */
+
+  /* USER CODE END 3 */
 }
+
 /**
  * @brief System Clock Configuration
  * @retval None
@@ -680,7 +692,7 @@ void SetPulse()
 {
   // htim4.Instance->ARR = 72 * usRegHoldingBuf[2];
   htim4.Instance->CCR1 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10);
-  htim4.Instance->CCR4 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10) - 144;
+  htim4.Instance->CCR4 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10) - 24;
 }
 
 void StopTimers()
