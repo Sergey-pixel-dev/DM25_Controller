@@ -49,7 +49,7 @@ extern "C"
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
 #define MAX_N_FRAMES 26
-#define MAX_N_SAMPLES 40
+#define MAX_N_SAMPLES 64
   /* USER CODE END EM 24
 
   void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);

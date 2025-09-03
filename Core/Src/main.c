@@ -64,6 +64,12 @@ volatile uint8_t uart5_dma_busy = 0;
 
 uint8_t RxData[256];
 uint8_t TxData[256];
+
+const uint8_t last_0_1_us[10] = {
+    0, 7, 14, 21, 28, 36, 43, 50, 57, 64};
+
+const uint8_t last_0_01_us[10] = {
+    0, 0, 1, 2, 2, 3, 4, 5, 5, 6};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -190,16 +196,12 @@ void MeasureVDD()
 
 void PrepareADC()
 {
-  memset(frame, 0, MAX_N_FRAMES * n_samples);
-  memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * n_samples + 4);
+  memset(frame, 0, MAX_N_FRAMES * MAX_N_SAMPLES);
+  memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * MAX_N_SAMPLES + 4);
   MeasureVDD();
-  n_samples = usRegHoldingBuf[3];
+  // n_samples = usRegHoldingBuf[3];
   ADC1->SQR3 = usRegHoldingBuf[2];
   TIM2->ARR = 100;
-  frame_8int_V[0] = 0xAA;
-  frame_8int_V[1] = 0x55;
-  frame_8int_V[2 * MAX_N_FRAMES * n_samples + 2] = 0x55;
-  frame_8int_V[2 * MAX_N_FRAMES * n_samples + 3] = 0xAA;
 }
 uint16_t ReadChannel(uint8_t channel)
 {
@@ -297,7 +299,7 @@ int main(void)
   usRegHoldingBuf[1] = 30;
   usCoilsBuf[0] = 1;
   usRegHoldingBuf[2] = 1;
-  usRegHoldingBuf[3] = 24;
+  usRegHoldingBuf[3] = 4;
   SetPulse();
   SetHZ();
   StartTimers();
@@ -320,6 +322,11 @@ int main(void)
         while (DMA2_Stream0->CR & DMA_SxCR_EN)
           ;
         DMA2_Stream0->M0AR = (uint32_t)(frame);
+        n_samples = usRegHoldingBuf[3];
+        frame_8int_V[0] = 0xAA;
+        frame_8int_V[1] = 0x55;
+        frame_8int_V[2 * MAX_N_FRAMES * n_samples + 2] = 0x55;
+        frame_8int_V[2 * MAX_N_FRAMES * n_samples + 3] = 0xAA;
         DMA2_Stream0->NDTR = n_samples;
         DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
         DMA2_Stream0->CR |= DMA_SxCR_EN;
@@ -690,9 +697,12 @@ void SetHZ()
 }
 void SetPulse()
 {
-  // htim4.Instance->ARR = 72 * usRegHoldingBuf[2];
+  uint16_t shift = usRegHoldingBuf[4];
   htim4.Instance->CCR1 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10);
-  htim4.Instance->CCR4 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10) - 24;
+  htim4.Instance->CCR4 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10);
+  htim4.Instance->CCR4 -= 72 * (shift / 100);
+  htim4.Instance->CCR4 -= last_0_1_us[((shift % 100) / 10)];
+  htim4.Instance->CCR4 -= last_0_01_us[shift % 10];
 }
 
 void StopTimers()
@@ -709,13 +719,6 @@ void StartTimers()
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
   HAL_TIM_OC_Start(&htim4, TIM_CHANNEL_4);
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
-}
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == UART5)
-  {
-    uart5_dma_busy = 0; // Передача завершена
-  }
 }
 /* USER CODE END 4 */
 

@@ -24,17 +24,17 @@
 #define COILS_N 2
 #define DISCRETE_N 6
 #define REG_INPUT_NREGS 9
-#define REG_HOLDING_NREGS 4
+#define REG_HOLDING_NREGS 5
 
 extern uint16_t usRegInputBuf[REG_INPUT_NREGS];
 // index 0 - 8: входы IN0-IN8
 
 extern uint16_t usRegHoldingBuf[REG_HOLDING_NREGS];
-// 0 - HZ, 1 -длительность импульса, 2 - channel ацп, 3 - n_samples
+// 0 - HZ, 1 -длительность импульса, 2 - channel ацп, 3 - n_samples, 4 - сдвиг триггера в мкс типа 333 - 3.33мкс
 
 extern uint16_t usCoilsBuf[1];
 // XX000000 00000000 - 0 - ВКЛ ИМПУЛЬС, 1 - ВКЛ АЦП
-//PB13 - HE, 
+// PB13 - HE,
 extern uint16_t usDiscreteBuf[1];
 // XXXX0000 00000000,
 // 0, 1, 2, 3, 4, 5 по порядку - ВКЛ БЛОК НАКАЛА, ВКЛ У.Э., ВКЛ -25кВ, ВКЛ HE, LE, БЛОК ГОТОВ, СОСТОЯНИЕ АЦП (1 - РАБОТАЕТ, 0 - НЕТ)
