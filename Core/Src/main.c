@@ -96,7 +96,7 @@ void ADC_init(void)
   ADC2->CR1 = 0;
   ADC2->CR2 = 0;
 
-  ADC1->SMPR1 = ADC_SMPR1_SMP17_2 | ADC_SMPR1_SMP17_1 | ADC_SMPR1_SMP17_0;
+  ADC1->SMPR1 = 0;
   ADC1->SMPR2 = 0;
   ADC2->SMPR1 = 0;
   ADC2->SMPR2 = 0;
@@ -300,6 +300,7 @@ int main(void)
   usCoilsBuf[0] = 1;
   usRegHoldingBuf[2] = 1;
   usRegHoldingBuf[3] = 4;
+  usRegHoldingBuf[5] = 1;
   SetPulse();
   SetHZ();
   StartTimers();
@@ -322,6 +323,7 @@ int main(void)
         while (DMA2_Stream0->CR & DMA_SxCR_EN)
           ;
         DMA2_Stream0->M0AR = (uint32_t)(frame);
+        ADC1->SQR3 = usRegHoldingBuf[2];
         n_samples = usRegHoldingBuf[3];
         frame_8int_V[0] = 0xAA;
         frame_8int_V[1] = 0x55;
@@ -616,7 +618,7 @@ static void MX_UART5_Init(void)
 
   /* USER CODE END UART5_Init 1 */
   huart5.Instance = UART5;
-  huart5.Init.BaudRate = 115200;
+  huart5.Init.BaudRate = 2000000;
   huart5.Init.WordLength = UART_WORDLENGTH_8B;
   huart5.Init.StopBits = UART_STOPBITS_1;
   huart5.Init.Parity = UART_PARITY_NONE;
@@ -707,18 +709,18 @@ void SetPulse()
 
 void StopTimers()
 {
-  HAL_TIM_Base_Stop(&htim3);
-  HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
-  HAL_TIM_OC_Stop(&htim4, TIM_CHANNEL_4);
-  HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_2);
+  htim3.Instance->CR1 &= ~TIM_CR1_CEN;
+  htim4.Instance->CCER &= ~TIM_CCER_CC1E;
+  htim4.Instance->CCER &= ~TIM_CCER_CC4E;
+  htim4.Instance->CCER &= ~TIM_CCER_CC2E;
 }
 
 void StartTimers()
 {
-  HAL_TIM_Base_Start(&htim3);
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
-  HAL_TIM_OC_Start(&htim4, TIM_CHANNEL_4);
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
+  htim3.Instance->CR1 |= TIM_CR1_CEN;
+  htim4.Instance->CCER |= TIM_CCER_CC1E;
+  htim4.Instance->CCER |= TIM_CCER_CC4E;
+  htim4.Instance->CCER |= TIM_CCER_CC2E;
 }
 /* USER CODE END 4 */
 

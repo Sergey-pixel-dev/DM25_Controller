@@ -16,6 +16,7 @@ extern UART_HandleTypeDef huart5;
 uint16_t usRegInputBuf[REG_INPUT_NREGS];
 
 // 0 - HZ, 1 -длительность импульса, 2 - channel ацп, 3 - n_samples, 4 - сдвиг триггера в мкс типа 333 - 3.33мкс
+// 5 бит - усреднение, кол-во (1, 4, 16, ..) (пусть будет и здесь)
 uint16_t usRegHoldingBuf[REG_HOLDING_NREGS];
 
 // XX000000 00000000 - 0 - ВКЛ ИМПУЛЬС, 1 - ВКЛ АЦП
