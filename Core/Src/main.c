@@ -44,7 +44,6 @@ TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart5;
-DMA_HandleTypeDef hdma_uart5_tx;
 
 /* USER CODE BEGIN PV */
 #define VREFINT_CAL_ADDR 0x1FFF7A2A
@@ -55,19 +54,17 @@ uint32_t sum;
 uint8_t frame_8int_V[2 * MAX_N_SAMPLES * MAX_N_FRAMES + 4];
 
 uint16_t n_samples = MAX_N_SAMPLES;
-
-// A1, A2, A3, A4 - входы диф пар (1, 2, 3, 4 каналы)
-// A5, A6, A7, PB0, PB1, PC0, PC1, PC2, PC3 - входы для обычной оцифровки - (5, 6, 7, 8, -, 10, 11, 12, 13, 14 каналы)
-
 uint8_t i = 0;
-volatile uint8_t uart5_dma_busy = 0;
 
-uint8_t RxData[256];
-uint8_t TxData[256];
+volatile uint8_t uart5_dma_busy = 0;
+volatile uint8_t RxData_i = 0;
+volatile uint8_t RxData[256];
+volatile uint8_t TxData[256];
+
+uint8_t hello[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
 
 const uint8_t last_0_1_us[10] = {
     0, 7, 14, 21, 28, 36, 43, 50, 57, 64};
-
 const uint8_t last_0_01_us[10] = {
     0, 0, 1, 2, 2, 3, 4, 5, 5, 6};
 /* USER CODE END PV */
@@ -75,11 +72,10 @@ const uint8_t last_0_01_us[10] = {
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_UART5_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_UART5_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -114,9 +110,10 @@ void ADC_init(void)
   ADC1->CR2 |= ADC_CR2_EOCS;
   ADC2->CR2 |= ADC_CR2_EOCS;
 }
-void ADC_DMA_Init(void)
+void DMA_Init(void)
 {
-  RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+  RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN | RCC_AHB1ENR_DMA1EN;
+  // DMA для ADC1
   DMA2_Stream0->PAR = ADC1_BASE + 0x4C;
   DMA2_Stream0->M0AR = (uint32_t)frame;
   DMA2_Stream0->NDTR = n_samples;
@@ -130,10 +127,111 @@ void ADC_DMA_Init(void)
                       | DMA_SxCR_MINC    // инкремент адреса памяти
                       | DMA_SxCR_TCIE;   // прерывание по завершению
 
+  // DMA для UART5
+  DMA1_Stream7->PAR = UART5_BASE + 0x04;
+  DMA1_Stream7->FCR = 0;
+  DMA1_Stream7->CR = DMA_SxCR_CHSEL_2 | DMA_SxCR_MINC | DMA_SxCR_TCIE | DMA_SxCR_DIR_0;
+
   NVIC_SetPriority(DMA2_Stream0_IRQn, 0);
+  NVIC_SetPriority(DMA1_Stream7_IRQn, 0);
+
   NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+  NVIC_EnableIRQ(DMA1_Stream7_IRQn);
 }
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+void UART5_Init(void)
+{
+  RCC->APB1ENR |= RCC_APB1ENR_UART5EN;
+  UART5->CR1 |= USART_CR1_RE | USART_CR1_TE | USART_CR1_UE | USART_CR1_OVER8;
+  UART5->CR3 |= USART_CR3_DMAT | USART_CR3_ONEBIT;
+  UART5->BRR = 0x271;
+
+  NVIC_SetPriority(UART5_IRQn, 2);
+  NVIC_EnableIRQ(UART5_IRQn);
+}
+
+void MeasureVDD()
+{
+  ADC1->CR2 &= ~ADC_CR2_CONT;
+  ADC1->SQR3 = 17;
+  ADC1->CR1 &= ~3 << 24;
+  ADC1->CR2 &= ~(ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0);
+  ADC1->DR;
+  ADC1->SR = 0;
+  // HAL_Delay(1);
+  ADC1->CR2 |= ADC_CR2_SWSTART;
+  while (!(ADC1->SR & ADC_SR_EOC))
+    ;
+  uint16_t raw_vrefint = ADC1->DR;
+  vdda = (3300 * VREFINT_CAL) / raw_vrefint;
+
+  ADC1->CR1 |= 1 << 24;
+  ADC1->SQR3 = usRegHoldingBuf[2];
+  ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0;
+  ADC1->CR2 |= ADC_CR2_CONT;
+  ADC1->SR = 0;
+}
+void PrepareADC()
+{
+  memset(frame, 0, MAX_N_FRAMES * MAX_N_SAMPLES);
+  memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * MAX_N_SAMPLES + 4);
+  MeasureVDD();
+  TIM2->ARR = 100;
+}
+uint16_t ReadChannel(uint8_t channel)
+{
+  ADC2->SQR3 = channel;
+  ADC2->CR2 |= ADC_CR2_SWSTART;
+  while (!(ADC2->SR & ADC_SR_EOC))
+    ;
+  return ADC2->DR;
+}
+void UpdateValuesMB()
+{
+  uint16_t idr = GPIOB->IDR;
+  uint8_t new_bits =
+      ((idr >> 12) & 0x01) << 0 | /* PB12 → bit0 */
+      ((idr >> 13) & 0x01) << 1 | /* PB13 → bit1 */
+      ((idr >> 14) & 0x01) << 2 | /* PB14 → bit2 */
+      ((idr >> 15) & 0x01) << 3 | /* PB15 → bit3 */
+      ((idr >> 4) & 0x01) << 4;   /* PB4  → bit4 */
+  if ((usDiscreteBuf[0] & 0x1F) != new_bits)
+  {
+    usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0x1F) | new_bits;
+  }
+  for (uint8_t i = 5; i < 14; i++)
+  {
+    sum = 0;
+    for (uint8_t j = 0; j < 10; j++)
+    {
+      sum += ReadChannel(i);
+    }
+    usRegInputBuf[i - 5] = vdda * (sum / 10) / 0xFFF;
+  }
+}
+
+void UART5_Transmit_DMA_Blocking(uint8_t *data, uint16_t size)
+{
+
+  while (uart5_dma_busy)
+    ;
+  DMA1->HIFCR |= DMA_HIFCR_CTCIF7;
+
+  DMA1_Stream7->CR &= ~DMA_SxCR_EN;
+  while (DMA1_Stream7->CR & DMA_SxCR_EN)
+    ;
+
+  DMA1_Stream7->M0AR = (uint32_t)data;
+  DMA1_Stream7->NDTR = size;
+  uart5_dma_busy = 1;
+  DMA1_Stream7->CR |= DMA_SxCR_EN;
+  while (!(DMA1_Stream7->CR & DMA_SxCR_EN))
+    ;
+}
+void UART5_ReceiveToIdle_IT()
+{
+  UART5->CR1 |= USART_CR1_RXNEIE;
+}
+void UART5_Transmition_Handler()
 {
   if (RxData[0] == SLAVE_ID)
   {
@@ -169,80 +267,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
       break;
     }
   }
-  HAL_UARTEx_ReceiveToIdle_IT(&huart5, RxData, 256);
-}
-
-void MeasureVDD()
-{
-  ADC1->CR2 &= ~ADC_CR2_CONT;
-  ADC1->SQR3 = 17;
-  ADC1->CR1 &= ~3 << 24;
-  ADC1->CR2 &= ~(ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0);
-  ADC1->DR;
-  ADC1->SR = 0;
-  // HAL_Delay(1);
-  ADC1->CR2 |= ADC_CR2_SWSTART;
-  while (!(ADC1->SR & ADC_SR_EOC))
-    ;
-  uint16_t raw_vrefint = ADC1->DR;
-  vdda = (3300 * VREFINT_CAL) / raw_vrefint;
-
-  ADC1->CR1 |= 1 << 24;
-  ADC1->SQR3 = usRegHoldingBuf[2];
-  ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0;
-  ADC1->CR2 |= ADC_CR2_CONT;
-  ADC1->SR = 0;
-}
-
-void PrepareADC()
-{
-  memset(frame, 0, MAX_N_FRAMES * MAX_N_SAMPLES);
-  memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * MAX_N_SAMPLES + 4);
-  MeasureVDD();
-  // n_samples = usRegHoldingBuf[3];
-  ADC1->SQR3 = usRegHoldingBuf[2];
-  TIM2->ARR = 100;
-}
-uint16_t ReadChannel(uint8_t channel)
-{
-  ADC2->SQR3 = channel;
-  ADC2->CR2 |= ADC_CR2_SWSTART;
-  while (!(ADC2->SR & ADC_SR_EOC))
-    ;
-  return ADC2->DR;
-}
-
-void UpdateValuesMB()
-{
-  // MeasureVDD();
-  uint16_t idr = GPIOB->IDR;
-  uint8_t new_bits =
-      ((idr >> 12) & 0x01) << 0 | /* PB12 → bit0 */
-      ((idr >> 13) & 0x01) << 1 | /* PB13 → bit1 */
-      ((idr >> 14) & 0x01) << 2 | /* PB14 → bit2 */
-      ((idr >> 15) & 0x01) << 3 | /* PB15 → bit3 */
-      ((idr >> 4) & 0x01) << 4;   /* PB4  → bit4 */
-  if ((usDiscreteBuf[0] & 0x1F) != new_bits)
-  {
-    usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0x1F) | new_bits;
-  }
-  for (uint8_t i = 5; i < 14; i++)
-  {
-
-    sum = 0;
-    for (uint8_t j = 0; j < 10; j++)
-    {
-      sum += ReadChannel(i);
-    }
-    usRegInputBuf[i - 5] = vdda * (sum / 10) / 0xFFF;
-  }
-}
-
-void UART5_Transmit_DMA_Blocking(uint8_t *data, uint16_t size)
-{
-  while (hdma_uart5_tx.State == HAL_DMA_STATE_BUSY)
-    ;
-  HAL_UART_Transmit_DMA(&huart5, data, size);
+  RxData_i = 0;
 }
 /* USER CODE END 0 */
 
@@ -275,16 +300,15 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_UART5_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
+  // MX_UART5_Init();
   /* USER CODE BEGIN 2 */
   VREFINT_CAL = *(uint16_t *)VREFINT_CAL_ADDR;
-  ADC_DMA_Init();
+  DMA_Init();
   ADC_init();
-
+  UART5_Init();
   ADC1->CR2 |= ADC_CR2_ADON;
   ADC2->CR2 |= ADC_CR2_ADON;
   HAL_Delay(1);
@@ -304,17 +328,17 @@ int main(void)
   SetPulse();
   SetHZ();
   StartTimers();
-  HAL_UARTEx_ReceiveToIdle_IT(&huart5, RxData, 256);
+  UART5_ReceiveToIdle_IT();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if (usCoilsBuf[0] & 0x02)
+    if (usCoilsBuf[0] & 0x02 && usCoilsBuf[0] & 0x01)
     {
       usDiscreteBuf[0] |= 0x20;
-      while (usCoilsBuf[0] & 0x02)
+      while (usCoilsBuf[0] & 0x02 && usCoilsBuf[0] & 0x01)
       {
         i = 0;
         TIM2->CCR2 = 1;
@@ -338,9 +362,9 @@ int main(void)
         ADC1->CR2 |= ADC_CR2_DMA;
         ADC1->CR2 |= ADC_CR2_EXTEN;
 
-        while (i < MAX_N_FRAMES && usCoilsBuf[0] & 0x02)
+        while (i < MAX_N_FRAMES && usCoilsBuf[0] & 0x02 && usCoilsBuf[0] & 0x01)
           ;
-        if (usCoilsBuf[0] & 0x02)
+        if (usCoilsBuf[0] & 0x02 && usCoilsBuf[0] & 0x01)
         {
           for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
           {
@@ -618,7 +642,7 @@ static void MX_UART5_Init(void)
 
   /* USER CODE END UART5_Init 1 */
   huart5.Instance = UART5;
-  huart5.Init.BaudRate = 2000000;
+  huart5.Init.BaudRate = 115200;
   huart5.Init.WordLength = UART_WORDLENGTH_8B;
   huart5.Init.StopBits = UART_STOPBITS_1;
   huart5.Init.Parity = UART_PARITY_NONE;
@@ -632,21 +656,6 @@ static void MX_UART5_Init(void)
   /* USER CODE BEGIN UART5_Init 2 */
 
   /* USER CODE END UART5_Init 2 */
-}
-
-/**
- * Enable DMA controller clock
- */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Stream7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 1, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
 }
 
 /**
@@ -687,6 +696,22 @@ static void MX_GPIO_Init(void)
   GPIO_Init.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4;
   HAL_GPIO_Init(GPIOC, &GPIO_Init);
 
+  // Настройка UART5 TX (PC12)
+  GPIO_Init.Pin = GPIO_PIN_12;
+  GPIO_Init.Mode = GPIO_MODE_AF_PP;
+  GPIO_Init.Pull = GPIO_NOPULL;
+  GPIO_Init.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_Init.Alternate = GPIO_AF8_UART5;
+  HAL_GPIO_Init(GPIOC, &GPIO_Init);
+
+  // Настройка UART5 RX (PD2)
+  GPIO_Init.Pin = GPIO_PIN_2;
+  GPIO_Init.Mode = GPIO_MODE_AF_PP;
+  GPIO_Init.Pull = GPIO_NOPULL;
+  GPIO_Init.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_Init.Alternate = GPIO_AF8_UART5;
+  HAL_GPIO_Init(GPIOD, &GPIO_Init);
+
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -706,7 +731,6 @@ void SetPulse()
   htim4.Instance->CCR4 -= last_0_1_us[((shift % 100) / 10)];
   htim4.Instance->CCR4 -= last_0_01_us[shift % 10];
 }
-
 void StopTimers()
 {
   htim3.Instance->CR1 &= ~TIM_CR1_CEN;
@@ -714,7 +738,6 @@ void StopTimers()
   htim4.Instance->CCER &= ~TIM_CCER_CC4E;
   htim4.Instance->CCER &= ~TIM_CCER_CC2E;
 }
-
 void StartTimers()
 {
   htim3.Instance->CR1 |= TIM_CR1_CEN;

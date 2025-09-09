@@ -8,11 +8,9 @@
 #include "modbusSlave.h"
 #include "string.h"
 #include "main.h"
-extern uint8_t RxData[256];
+extern volatile uint8_t RxData[256];
 extern uint8_t TxData[256];
-extern UART_HandleTypeDef huart5;
 // index 0 - 8: входы IN0-IN8
-
 uint16_t usRegInputBuf[REG_INPUT_NREGS];
 
 // 0 - HZ, 1 -длительность импульса, 2 - channel ацп, 3 - n_samples, 4 - сдвиг триггера в мкс типа 333 - 3.33мкс
@@ -31,7 +29,6 @@ void sendData(uint8_t *data, int size)
 	uint16_t crc = crc16(data, size);
 	data[size] = crc & 0xFF;			// CRC LOW
 	data[size + 1] = (crc >> 8) & 0xFF; // CRC HIGH
-
 	UART5_Transmit_DMA_Blocking(data, size + 2);
 }
 

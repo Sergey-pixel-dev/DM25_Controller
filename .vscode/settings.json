@@ -27,6 +27,7 @@
         "mbfunc.h": "c",
         "modbusslave.h": "c",
         "cmath": "c",
-        "cstdlib": "c"
+        "cstdlib": "c",
+        "modbus_crc.h": "c"
     }
 }

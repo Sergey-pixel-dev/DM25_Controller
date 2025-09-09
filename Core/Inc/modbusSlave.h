@@ -31,7 +31,7 @@ extern uint16_t usRegInputBuf[REG_INPUT_NREGS];
 
 extern uint16_t usRegHoldingBuf[REG_HOLDING_NREGS];
 // 0 - HZ, 1 -длительность импульса, 2 - channel ацп, 3 - n_samples, 4 - сдвиг триггера в мкс типа 333 - 3.33мкс
-// 5 бит - усреднение, кол-во (1, 4, 16, ..) (пусть будет и здесь)
+// 5 байт - усреднение, кол-во (1, 4, 16, ..) (пусть будет и здесь)
 
 extern uint16_t usCoilsBuf[1];
 // XX000000 00000000 - 0 - ВКЛ ИМПУЛЬС, 1 - ВКЛ АЦП

@@ -55,9 +55,7 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern TIM_HandleTypeDef htim2;
-extern DMA_HandleTypeDef hdma_uart5_tx;
-extern UART_HandleTypeDef huart5;
+
 /* USER CODE BEGIN EV */
 /* USER CODE END EV */
 
@@ -65,8 +63,8 @@ extern UART_HandleTypeDef huart5;
 /*           Cortex-M4 Processor Interruption and Exception Handlers          */
 /******************************************************************************/
 /**
- * @brief This function handles Non maskable interrupt.
- */
+  * @brief This function handles Non maskable interrupt.
+  */
 void NMI_Handler(void)
 {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
@@ -80,8 +78,8 @@ void NMI_Handler(void)
 }
 
 /**
- * @brief This function handles Hard fault interrupt.
- */
+  * @brief This function handles Hard fault interrupt.
+  */
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
@@ -95,8 +93,8 @@ void HardFault_Handler(void)
 }
 
 /**
- * @brief This function handles Memory management fault.
- */
+  * @brief This function handles Memory management fault.
+  */
 void MemManage_Handler(void)
 {
   /* USER CODE BEGIN MemoryManagement_IRQn 0 */
@@ -110,8 +108,8 @@ void MemManage_Handler(void)
 }
 
 /**
- * @brief This function handles Pre-fetch fault, memory access fault.
- */
+  * @brief This function handles Pre-fetch fault, memory access fault.
+  */
 void BusFault_Handler(void)
 {
   /* USER CODE BEGIN BusFault_IRQn 0 */
@@ -125,8 +123,8 @@ void BusFault_Handler(void)
 }
 
 /**
- * @brief This function handles Undefined instruction or illegal state.
- */
+  * @brief This function handles Undefined instruction or illegal state.
+  */
 void UsageFault_Handler(void)
 {
   /* USER CODE BEGIN UsageFault_IRQn 0 */
@@ -140,8 +138,8 @@ void UsageFault_Handler(void)
 }
 
 /**
- * @brief This function handles System service call via SWI instruction.
- */
+  * @brief This function handles System service call via SWI instruction.
+  */
 void SVC_Handler(void)
 {
   /* USER CODE BEGIN SVCall_IRQn 0 */
@@ -153,8 +151,8 @@ void SVC_Handler(void)
 }
 
 /**
- * @brief This function handles Debug monitor.
- */
+  * @brief This function handles Debug monitor.
+  */
 void DebugMon_Handler(void)
 {
   /* USER CODE BEGIN DebugMonitor_IRQn 0 */
@@ -166,8 +164,8 @@ void DebugMon_Handler(void)
 }
 
 /**
- * @brief This function handles Pendable request for system service.
- */
+  * @brief This function handles Pendable request for system service.
+  */
 void PendSV_Handler(void)
 {
   /* USER CODE BEGIN PendSV_IRQn 0 */
@@ -179,8 +177,8 @@ void PendSV_Handler(void)
 }
 
 /**
- * @brief This function handles System tick timer.
- */
+  * @brief This function handles System tick timer.
+  */
 void SysTick_Handler(void)
 {
   /* USER CODE BEGIN SysTick_IRQn 0 */
@@ -198,48 +196,6 @@ void SysTick_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32f4xx.s).                    */
 /******************************************************************************/
-
-/**
- * @brief This function handles TIM2 global interrupt.
- */
-void TIM2_IRQHandler(void)
-{
-  /* USER CODE BEGIN TIM2_IRQn 0 */
-
-  /* USER CODE END TIM2_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim2);
-  /* USER CODE BEGIN TIM2_IRQn 1 */
-
-  /* USER CODE END TIM2_IRQn 1 */
-}
-
-/**
- * @brief This function handles DMA1 stream7 global interrupt.
- */
-void DMA1_Stream7_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMA1_Stream7_IRQn 0 */
-
-  /* USER CODE END DMA1_Stream7_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_uart5_tx);
-  /* USER CODE BEGIN DMA1_Stream7_IRQn 1 */
-
-  /* USER CODE END DMA1_Stream7_IRQn 1 */
-}
-
-/**
- * @brief This function handles UART5 global interrupt.
- */
-void UART5_IRQHandler(void)
-{
-  /* USER CODE BEGIN UART5_IRQn 0 */
-
-  /* USER CODE END UART5_IRQn 0 */
-  HAL_UART_IRQHandler(&huart5);
-  /* USER CODE BEGIN UART5_IRQn 1 */
-
-  /* USER CODE END UART5_IRQn 1 */
-}
 
 /* USER CODE BEGIN 1 */
 void DMA2_Stream0_IRQHandler(void)
@@ -268,6 +224,32 @@ void DMA2_Stream0_IRQHandler(void)
       TIM2->CCR2 += 1;
       ADC1->CR2 |= ADC_CR2_EXTEN;
     }
+  }
+}
+void DMA1_Stream7_IRQHandler(void)
+{
+  if (DMA1->HISR & DMA_HISR_TCIF7)
+  {
+    DMA1->HIFCR |= DMA_HIFCR_CTCIF7;
+    uart5_dma_busy = 0;
+  }
+}
+void UART5_IRQHandler(void)
+{
+  if (UART5->SR & USART_SR_RXNE)
+  {
+    while (1)
+    {
+      if (UART5->SR & USART_SR_RXNE && RxData_i < 256)
+        RxData[RxData_i++] = UART5->DR;
+      if (UART5->SR & USART_SR_IDLE)
+      {
+        UART5->SR;
+        UART5->DR;
+        break;
+      }
+    }
+    UART5_Transmition_Handler();
   }
 }
 /* USER CODE END 1 */
