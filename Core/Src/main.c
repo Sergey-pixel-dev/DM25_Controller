@@ -43,8 +43,6 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
-UART_HandleTypeDef huart5;
-
 /* USER CODE BEGIN PV */
 #define VREFINT_CAL_ADDR 0x1FFF7A2A
 uint16_t VREFINT_CAL;
@@ -75,7 +73,6 @@ static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
-static void MX_UART5_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -143,7 +140,7 @@ void UART5_Init(void)
   RCC->APB1ENR |= RCC_APB1ENR_UART5EN;
   UART5->CR1 |= USART_CR1_RE | USART_CR1_TE | USART_CR1_UE | USART_CR1_OVER8;
   UART5->CR3 |= USART_CR3_DMAT | USART_CR3_ONEBIT;
-  UART5->BRR = 0x271;
+  UART5->BRR = 0x30;
 
   NVIC_SetPriority(UART5_IRQn, 2);
   NVIC_EnableIRQ(UART5_IRQn);
@@ -214,12 +211,9 @@ void UART5_Transmit_DMA_Blocking(uint8_t *data, uint16_t size)
 
   while (uart5_dma_busy)
     ;
-  DMA1->HIFCR |= DMA_HIFCR_CTCIF7;
-
   DMA1_Stream7->CR &= ~DMA_SxCR_EN;
   while (DMA1_Stream7->CR & DMA_SxCR_EN)
     ;
-
   DMA1_Stream7->M0AR = (uint32_t)data;
   DMA1_Stream7->NDTR = size;
   uart5_dma_busy = 1;
@@ -303,7 +297,6 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
-  // MX_UART5_Init();
   /* USER CODE BEGIN 2 */
   VREFINT_CAL = *(uint16_t *)VREFINT_CAL_ADDR;
   DMA_Init();
@@ -627,38 +620,6 @@ static void MX_TIM4_Init(void)
 }
 
 /**
- * @brief UART5 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_UART5_Init(void)
-{
-
-  /* USER CODE BEGIN UART5_Init 0 */
-
-  /* USER CODE END UART5_Init 0 */
-
-  /* USER CODE BEGIN UART5_Init 1 */
-
-  /* USER CODE END UART5_Init 1 */
-  huart5.Instance = UART5;
-  huart5.Init.BaudRate = 115200;
-  huart5.Init.WordLength = UART_WORDLENGTH_8B;
-  huart5.Init.StopBits = UART_STOPBITS_1;
-  huart5.Init.Parity = UART_PARITY_NONE;
-  huart5.Init.Mode = UART_MODE_TX_RX;
-  huart5.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart5.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart5) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN UART5_Init 2 */
-
-  /* USER CODE END UART5_Init 2 */
-}
-
-/**
  * @brief GPIO Initialization Function
  * @param None
  * @retval None
@@ -667,15 +628,14 @@ static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
-
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pins : PB12 PB13 PB14 PB15 */
   GPIO_InitStruct.Pin = GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
