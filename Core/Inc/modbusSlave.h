@@ -21,23 +21,24 @@
 #define REG_HOLDING_START 41001
 #define COILS_START 00001
 #define DISCRETE_START 10001
-#define COILS_N 1
-#define DISCRETE_N 4
-#define REG_INPUT_NREGS 58
-#define REG_HOLDING_NREGS 39
+#define COILS_N 2
+#define DISCRETE_N 6
+#define REG_INPUT_NREGS 9
+#define REG_HOLDING_NREGS 6
 
 extern uint16_t usRegInputBuf[REG_INPUT_NREGS];
 // index 0 - 8: входы IN0-IN8
 
 extern uint16_t usRegHoldingBuf[REG_HOLDING_NREGS];
-// 0 - HZ, 1 -длительность импулсьа, 2 - интервал
+// 0 - HZ, 1 -длительность импульса, 2 - channel ацп, 3 - n_samples, 4 - сдвиг триггера в мкс типа 333 - 3.33мкс
+// 5 байт - усреднение, кол-во (1, 4, 16, ..) (пусть будет и здесь)
 
 extern uint16_t usCoilsBuf[1];
-// X0000000 00000000 - 1, - ВКЛ ИМПУЛЬС
-
+// XX000000 00000000 - 0 - ВКЛ ИМПУЛЬС, 1 - ВКЛ АЦП
+// PB13 - HE,
 extern uint16_t usDiscreteBuf[1];
 // XXXX0000 00000000,
-// 1, 2, 3, 4 по порядку - ВКЛ БЛОК НАКАЛА, ВКЛ У.Э., ВКЛ -25кВ, ВКЛ HE, LE
+// 0, 1, 2, 3, 4, 5 по порядку - ВКЛ БЛОК НАКАЛА, ВКЛ У.Э., ВКЛ -25кВ, ВКЛ HE, LE, БЛОК ГОТОВ, СОСТОЯНИЕ АЦП (1 - РАБОТАЕТ, 0 - НЕТ)
 
 uint8_t readHoldingRegs(void);
 uint8_t readInputRegs(void);

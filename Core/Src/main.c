@@ -21,7 +21,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "modbusSlave.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +30,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define ADC_CLOCK_SYNC_PCLK_DIV2 0;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -40,58 +39,81 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc1;
-DMA_HandleTypeDef hdma_adc1;
-
 TIM_HandleTypeDef htim2;
-
-UART_HandleTypeDef huart5;
+TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
 #define VREFINT_CAL_ADDR 0x1FFF7A2A
 uint16_t VREFINT_CAL;
 uint16_t vdda;
-uint8_t i;
-uint16_t frame[N_SAMPLES * N_FRAMES];
-uint8_t frame_8int_V[2 * N_SAMPLES * N_FRAMES];
+uint16_t frame[MAX_N_FRAMES * MAX_N_SAMPLES];
+uint32_t sum;
+uint8_t frame_8int_V[2 * MAX_N_SAMPLES * MAX_N_FRAMES + 4];
 
-uint8_t buf[8];
-uint8_t RxData[256];
-uint8_t TxData[256];
+uint16_t n_samples = MAX_N_SAMPLES;
+uint8_t i = 0;
+
+volatile uint8_t uart5_dma_busy = 0;
+volatile uint8_t RxData_i = 0;
+volatile uint8_t RxData[256];
+volatile uint8_t TxData[256];
+
+uint8_t hello[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+const uint8_t last_0_1_us[10] = {
+    0, 7, 14, 21, 28, 36, 43, 50, 57, 64};
+const uint8_t last_0_01_us[10] = {
+    0, 0, 1, 2, 2, 3, 4, 5, 5, 6};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_UART5_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_ADC1_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
 void ADC_init(void)
 {
-  RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+  RCC->APB2ENR |= RCC_APB2ENR_ADC1EN | RCC_APB2ENR_ADC2EN;
   ADC->CCR |= ADC_CLOCK_SYNC_PCLK_DIV2;
 
   ADC1->CR1 = 0;
   ADC1->CR2 = 0;
-
-  ADC1->CR1 |= ADC_RESOLUTION_8B;
+  ADC2->CR1 = 0;
+  ADC2->CR2 = 0;
 
   ADC1->SMPR1 = 0;
-  ADC1->SMPR1 |= ADC_SMPR1_SMP17_2 | ADC_SMPR1_SMP17_1 | ADC_SMPR1_SMP17_0;
   ADC1->SMPR2 = 0;
+  ADC2->SMPR1 = 0;
+  ADC2->SMPR2 = 0;
+
   ADC1->SQR1 = 0;
-  ADC1->SQR3 = (17 << 0);
+  ADC1->SQR2 = 0;
+  ADC1->SQR3 = 0;
+  ADC2->SQR1 = 0;
+  ADC2->SQR2 = 0;
+  ADC2->SQR3 = 0;
+  ADC2->SMPR1 = ADC_SMPR1_SMP10_2 | ADC_SMPR1_SMP11_2 | ADC_SMPR1_SMP12_2 | ADC_SMPR1_SMP13_2;
+  ADC2->SMPR2 = ADC_SMPR2_SMP5_2 | ADC_SMPR2_SMP6_2 | ADC_SMPR2_SMP7_2 | ADC_SMPR2_SMP8_2 | ADC_SMPR2_SMP9_2;
+
   ADC->CCR |= ADC_CCR_TSVREFE;
-  ADC1->CR2 |= ADC_CR2_EOCS; // EOC сразу после каждого преобразования
+  ADC1->CR2 |= ADC_CR2_EOCS;
+  ADC2->CR2 |= ADC_CR2_EOCS;
 }
-void ADC_DMA_Init(void)
+void DMA_Init(void)
 {
-  RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+  RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN | RCC_AHB1ENR_DMA1EN;
+  // DMA для ADC1
   DMA2_Stream0->PAR = ADC1_BASE + 0x4C;
   DMA2_Stream0->M0AR = (uint32_t)frame;
-  DMA2_Stream0->NDTR = N_SAMPLES;
+  DMA2_Stream0->NDTR = n_samples;
   DMA2_Stream0->CR = 0;
 
   DMA2_Stream0->CR |= DMA_PRIORITY_VERY_HIGH;
@@ -102,53 +124,108 @@ void ADC_DMA_Init(void)
                       | DMA_SxCR_MINC    // инкремент адреса памяти
                       | DMA_SxCR_TCIE;   // прерывание по завершению
 
+  // DMA для UART5
+  DMA1_Stream7->PAR = UART5_BASE + 0x04;
+  DMA1_Stream7->FCR = 0;
+  DMA1_Stream7->CR = DMA_SxCR_CHSEL_2 | DMA_SxCR_MINC | DMA_SxCR_TCIE | DMA_SxCR_DIR_0;
+
   NVIC_SetPriority(DMA2_Stream0_IRQn, 0);
+  NVIC_SetPriority(DMA1_Stream7_IRQn, 0);
+
   NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+  NVIC_EnableIRQ(DMA1_Stream7_IRQn);
 }
-void TIM2_Init()
+void UART5_Init(void)
 {
-  // Включение тактирования TIM2
-  RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+  RCC->APB1ENR |= RCC_APB1ENR_UART5EN;
+  UART5->CR1 |= USART_CR1_RE | USART_CR1_TE | USART_CR1_UE | USART_CR1_OVER8;
+  UART5->CR3 |= USART_CR3_DMAT | USART_CR3_ONEBIT;
+  UART5->BRR = 0x30;
 
-  // Сброс настроек таймера
-  TIM2->CR1 = 0;
-  TIM2->CR2 = 0;
-  TIM2->SMCR = 0;
-  TIM2->CCER = 0;
-
-  // Настройка предделителя и периода
-  TIM2->PSC = 0;   // Предделитель 0 (деление на 1)
-  TIM2->ARR = 100; // Период 100 тактов
-
-  // Настройка канала 2 в режиме Toggle
-  TIM2->CCMR1 &= ~TIM_CCMR1_OC2M; // Сброс предыдущих настроек
-  TIM2->CCMR1 |= (0b011 << 8);    // OC2M = 011 (Toggle mode)
-
-  // Установка значения сравнения
-  TIM2->CCR2 = 1; // Значение сравнения для канала 2
-
-  // Настройка режима однократного импульса (One Pulse Mode)
-  TIM2->CR1 |= TIM_CR1_OPM; // One Pulse Mode
-
-  // Настройка внешнего триггера (ETR)
-  TIM2->SMCR |= (0b100 << 4); // TS = 100 (ETRF)
-  TIM2->SMCR |= (0b110 << 0); // SMS = 110 (Trigger mode)
-
-  // Настройка фильтра и полярности ETR
-  TIM2->SMCR &= ~(0xF << 8);   // ETF = 0000 (без фильтра)
-  TIM2->SMCR &= ~TIM_SMCR_ETP; // ETP = 0 (положительная полярность)
-
-  // Включение ETR
-  TIM2->SMCR |= TIM_SMCR_ECE; // External Clock Enable
-
-  // Принудительное обновление регистров
-  TIM2->EGR |= TIM_EGR_UG; // Принудительное событие обновления
-
-  // Очистка всех флагов
-  TIM2->SR = 0;
+  NVIC_SetPriority(UART5_IRQn, 2);
+  NVIC_EnableIRQ(UART5_IRQn);
 }
 
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+void MeasureVDD()
+{
+  ADC1->CR2 &= ~ADC_CR2_CONT;
+  ADC1->SQR3 = 17;
+  ADC1->CR1 &= ~3 << 24;
+  ADC1->CR2 &= ~(ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0);
+  ADC1->DR;
+  ADC1->SR = 0;
+  // HAL_Delay(1);
+  ADC1->CR2 |= ADC_CR2_SWSTART;
+  while (!(ADC1->SR & ADC_SR_EOC))
+    ;
+  uint16_t raw_vrefint = ADC1->DR;
+  vdda = (3300 * VREFINT_CAL) / raw_vrefint;
+
+  ADC1->CR1 |= 1 << 24;
+  ADC1->SQR3 = usRegHoldingBuf[2];
+  ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0;
+  ADC1->CR2 |= ADC_CR2_CONT;
+  ADC1->SR = 0;
+}
+void PrepareADC()
+{
+  memset(frame, 0, MAX_N_FRAMES * MAX_N_SAMPLES);
+  memset(frame_8int_V, 0, 2 * MAX_N_FRAMES * MAX_N_SAMPLES + 4);
+  MeasureVDD();
+  TIM2->ARR = 100;
+}
+uint16_t ReadChannel(uint8_t channel)
+{
+  ADC2->SQR3 = channel;
+  ADC2->CR2 |= ADC_CR2_SWSTART;
+  while (!(ADC2->SR & ADC_SR_EOC))
+    ;
+  return ADC2->DR;
+}
+void UpdateValuesMB()
+{
+  uint16_t idr = GPIOB->IDR;
+  uint8_t new_bits =
+      ((idr >> 12) & 0x01) << 0 | /* PB12 → bit0 */
+      ((idr >> 13) & 0x01) << 1 | /* PB13 → bit1 */
+      ((idr >> 14) & 0x01) << 2 | /* PB14 → bit2 */
+      ((idr >> 15) & 0x01) << 3 | /* PB15 → bit3 */
+      ((idr >> 4) & 0x01) << 4;   /* PB4  → bit4 */
+  if ((usDiscreteBuf[0] & 0x1F) != new_bits)
+  {
+    usDiscreteBuf[0] = (usDiscreteBuf[0] & ~0x1F) | new_bits;
+  }
+  for (uint8_t i = 5; i < 14; i++)
+  {
+    sum = 0;
+    for (uint8_t j = 0; j < 10; j++)
+    {
+      sum += ReadChannel(i);
+    }
+    usRegInputBuf[i - 5] = vdda * (sum / 10) / 0xFFF;
+  }
+}
+
+void UART5_Transmit_DMA_Blocking(uint8_t *data, uint16_t size)
+{
+
+  while (uart5_dma_busy)
+    ;
+  DMA1_Stream7->CR &= ~DMA_SxCR_EN;
+  while (DMA1_Stream7->CR & DMA_SxCR_EN)
+    ;
+  DMA1_Stream7->M0AR = (uint32_t)data;
+  DMA1_Stream7->NDTR = size;
+  uart5_dma_busy = 1;
+  DMA1_Stream7->CR |= DMA_SxCR_EN;
+  while (!(DMA1_Stream7->CR & DMA_SxCR_EN))
+    ;
+}
+void UART5_ReceiveToIdle_IT()
+{
+  UART5->CR1 |= USART_CR1_RXNEIE;
+}
+void UART5_Transmition_Handler()
 {
   if (RxData[0] == SLAVE_ID)
   {
@@ -158,6 +235,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
       readHoldingRegs();
       break;
     case 0x04:
+      UpdateValuesMB();
       readInputRegs();
       break;
     case 0x01:
@@ -183,18 +261,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
       break;
     }
   }
-  else if (RxData[0] == 1)
-  {
-    buf[0] = 1;
-  }
-
-  HAL_UARTEx_ReceiveToIdle_IT(&huart5, RxData, 256);
+  RxData_i = 0;
 }
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
 /* USER CODE END 0 */
 
 /**
@@ -226,71 +294,87 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  // MX_DMA_Init();
-  MX_UART5_Init();
   MX_TIM2_Init();
-  // MX_ADC1_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   VREFINT_CAL = *(uint16_t *)VREFINT_CAL_ADDR;
-  ADC_DMA_Init();
+  DMA_Init();
   ADC_init();
-
+  UART5_Init();
   ADC1->CR2 |= ADC_CR2_ADON;
+  ADC2->CR2 |= ADC_CR2_ADON;
   HAL_Delay(1);
-  ADC1->CR2 |= ADC_CR2_SWSTART;
-  while (!(ADC1->SR & ADC_SR_EOC))
-    ;
-  uint16_t raw_vrefint = ADC1->DR;
-  vdda = (0xFF * VREFINT_CAL) / raw_vrefint; // 8-bit разрешение ADC -> 0xFF */
 
-  ADC1->SQR3 = (9 << 0);
-  ADC1->CR2 |= ADC_CR2_CONT;
-  ADC1->CR2 |= ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0; // tim2 cc2
   // заупск таймера TIM2 + OC 2 CHANNEL
-  HAL_Delay(10);
   TIM2->CNT = 0;
   TIM2->CCR2 = 1;
   TIM2->CCER |= TIM_CCER_CC2E;
-  HAL_UARTEx_ReceiveToIdle_IT(&huart5, RxData, 256);
+
+  MeasureVDD();
+  usRegHoldingBuf[0] = 100;
+  usRegHoldingBuf[1] = 30;
+  usCoilsBuf[0] = 1;
+  usRegHoldingBuf[2] = 1;
+  usRegHoldingBuf[3] = 4;
+  usRegHoldingBuf[5] = 1;
+  SetPulse();
+  SetHZ();
+  StartTimers();
+  UART5_ReceiveToIdle_IT();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if (buf[0] == 1)
+    if (usCoilsBuf[0] & 0x02 && usCoilsBuf[0] & 0x01)
     {
-      buf[0] = 0;
-      memset(frame, 0, N_FRAMES * N_SAMPLES);
-      i = 0;
-      TIM2->CCR2 = 1;
-      ADC1->CR2 &= ~ADC_CR2_DMA;
-      DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-      while (DMA2_Stream0->CR & DMA_SxCR_EN)
-        ;
-      DMA2_Stream0->M0AR = (uint32_t)frame;
-      DMA2_Stream0->NDTR = N_SAMPLES;
-      DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
-      DMA2_Stream0->CR |= DMA_SxCR_EN;
-      while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
-        ;
-      ADC1->SR = 0;
-      ADC1->CR2 |= ADC_CR2_DMA;
-      ADC1->CR2 |= ADC_CR2_EXTEN;
-      HAL_Delay(1000);
-      for (uint16_t i = 0; i < N_FRAMES * N_SAMPLES; i++)
+      usDiscreteBuf[0] |= 0x20;
+      while (usCoilsBuf[0] & 0x02 && usCoilsBuf[0] & 0x01)
       {
-        uint16_t word = vdda * frame[i] / 0xFF;
-        frame_8int_V[2 * i] = (uint8_t)(word & 0xFF);
-        frame_8int_V[2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
-      }
-      HAL_UART_Transmit(&huart5, frame_8int_V, 2 * N_FRAMES * N_SAMPLES, HAL_MAX_DELAY);
-      frame[0] += 1;
-    }
-    /* USER CODE END WHILE */
+        i = 0;
+        TIM2->CCR2 = 1;
+        ADC1->CR2 &= ~ADC_CR2_DMA;
+        DMA2_Stream0->CR &= ~DMA_SxCR_EN;
+        while (DMA2_Stream0->CR & DMA_SxCR_EN)
+          ;
+        DMA2_Stream0->M0AR = (uint32_t)(frame);
+        ADC1->SQR3 = usRegHoldingBuf[2];
+        n_samples = usRegHoldingBuf[3];
+        frame_8int_V[0] = 0xAA;
+        frame_8int_V[1] = 0x55;
+        frame_8int_V[2 * MAX_N_FRAMES * n_samples + 2] = 0x55;
+        frame_8int_V[2 * MAX_N_FRAMES * n_samples + 3] = 0xAA;
+        DMA2_Stream0->NDTR = n_samples;
+        DMA2->LIFCR = DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0;
+        DMA2_Stream0->CR |= DMA_SxCR_EN;
+        while (!(DMA2_Stream0->CR & DMA_SxCR_EN))
+          ;
+        ADC1->SR = 0;
+        ADC1->CR2 |= ADC_CR2_DMA;
+        ADC1->CR2 |= ADC_CR2_EXTEN;
 
-    /* USER CODE BEGIN 3 */
+        while (i < MAX_N_FRAMES && usCoilsBuf[0] & 0x02 && usCoilsBuf[0] & 0x01)
+          ;
+        if (usCoilsBuf[0] & 0x02 && usCoilsBuf[0] & 0x01)
+        {
+          for (uint16_t i = 0; i < MAX_N_FRAMES * n_samples; i++)
+          {
+            uint16_t word = vdda * frame[i] / 1024;
+            frame_8int_V[2 + 2 * i] = (uint8_t)(word & 0xFF);
+            frame_8int_V[2 + 2 * i + 1] = (uint8_t)((word >> 8) & 0xFF);
+          }
+          UART5_Transmit_DMA_Blocking(frame_8int_V, 2 * MAX_N_FRAMES * n_samples + 4);
+        }
+      }
+      usDiscreteBuf[0] &= ~0x20;
+    }
   }
+  /* USER CODE END WHILE */
+
+  /* USER CODE BEGIN 3 */
+
   /* USER CODE END 3 */
 }
 
@@ -340,57 +424,6 @@ void SystemClock_Config(void)
 }
 
 /**
- * @brief ADC1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_ADC1_Init(void)
-{
-
-  /* USER CODE BEGIN ADC1_Init 0 */
-
-  /* USER CODE END ADC1_Init 0 */
-
-  ADC_ChannelConfTypeDef sConfig = {0};
-
-  /* USER CODE BEGIN ADC1_Init 1 */
-
-  /* USER CODE END ADC1_Init 1 */
-
-  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-   */
-  hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
-  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc1.Init.ScanConvMode = DISABLE;
-  hadc1.Init.ContinuousConvMode = ENABLE;
-  hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 1;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  if (HAL_ADC_Init(&hadc1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
-   */
-  sConfig.Channel = ADC_CHANNEL_9;
-  sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN ADC1_Init 2 */
-
-  /* USER CODE END ADC1_Init 2 */
-}
-
-/**
  * @brief TIM2 Initialization Function
  * @param None
  * @retval None
@@ -413,7 +446,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 200;
+  htim2.Init.Period = 600;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -434,10 +467,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sSlaveConfig.SlaveMode = TIM_SLAVEMODE_TRIGGER;
-  sSlaveConfig.InputTrigger = TIM_TS_ETRF;
-  sSlaveConfig.TriggerPolarity = TIM_TRIGGERPOLARITY_NONINVERTED;
-  sSlaveConfig.TriggerPrescaler = TIM_TRIGGERPRESCALER_DIV1;
-  sSlaveConfig.TriggerFilter = 0;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR3;
   if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK)
   {
     Error_Handler();
@@ -462,50 +492,131 @@ static void MX_TIM2_Init(void)
 }
 
 /**
- * @brief UART5 Initialization Function
+ * @brief TIM3 Initialization Function
  * @param None
  * @retval None
  */
-static void MX_UART5_Init(void)
+static void MX_TIM3_Init(void)
 {
 
-  /* USER CODE BEGIN UART5_Init 0 */
+  /* USER CODE BEGIN TIM3_Init 0 */
 
-  /* USER CODE END UART5_Init 0 */
+  /* USER CODE END TIM3_Init 0 */
 
-  /* USER CODE BEGIN UART5_Init 1 */
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-  /* USER CODE END UART5_Init 1 */
-  huart5.Instance = UART5;
-  huart5.Init.BaudRate = 115200;
-  huart5.Init.WordLength = UART_WORDLENGTH_8B;
-  huart5.Init.StopBits = UART_STOPBITS_1;
-  huart5.Init.Parity = UART_PARITY_NONE;
-  huart5.Init.Mode = UART_MODE_TX_RX;
-  huart5.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart5.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart5) != HAL_OK)
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 1098;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 7199;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN UART5_Init 2 */
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
 
-  /* USER CODE END UART5_Init 2 */
+  /* USER CODE END TIM3_Init 2 */
 }
 
 /**
- * Enable DMA controller clock
+ * @brief TIM4 Initialization Function
+ * @param None
+ * @retval None
  */
-static void MX_DMA_Init(void)
+static void MX_TIM4_Init(void)
 {
 
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA2_CLK_ENABLE();
+  /* USER CODE BEGIN TIM4_Init 0 */
 
-  /* DMA interrupt init */
-  /* DMA2_Stream0_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 3599;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_OC_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_OnePulse_Init(&htim4, TIM_OPMODE_SINGLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_TRIGGER;
+  sSlaveConfig.InputTrigger = TIM_TS_ITR2;
+  if (HAL_TIM_SlaveConfigSynchro(&htim4, &sSlaveConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_OC4REF;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_LOW;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.Pulse = 1;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_TOGGLE;
+  if (HAL_TIM_OC_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  __HAL_TIM_ENABLE_OCxPRELOAD(&htim4, TIM_CHANNEL_4);
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
 }
 
 /**
@@ -517,39 +628,83 @@ static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
-
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : PB2 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  /*Configure GPIO pins : PB12 PB13 PB14 PB15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   GPIO_InitTypeDef GPIO_Init = {0};
-  GPIO_Init.Pin = GPIO_PIN_1;
+  GPIO_Init.Pin = GPIO_PIN_1 | GPIO_PIN_0;
   GPIO_Init.Mode = GPIO_MODE_ANALOG;
   GPIO_Init.Pull = GPIO_NOPULL;
   GPIO_Init.Speed = GPIO_SPEED_FREQ_LOW;
-
   HAL_GPIO_Init(GPIOB, &GPIO_Init);
+
+  GPIO_Init.Pin = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
+  HAL_GPIO_Init(GPIOA, &GPIO_Init);
+  GPIO_Init.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4;
+  HAL_GPIO_Init(GPIOC, &GPIO_Init);
+
+  // Настройка UART5 TX (PC12)
+  GPIO_Init.Pin = GPIO_PIN_12;
+  GPIO_Init.Mode = GPIO_MODE_AF_PP;
+  GPIO_Init.Pull = GPIO_NOPULL;
+  GPIO_Init.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_Init.Alternate = GPIO_AF8_UART5;
+  HAL_GPIO_Init(GPIOC, &GPIO_Init);
+
+  // Настройка UART5 RX (PD2)
+  GPIO_Init.Pin = GPIO_PIN_2;
+  GPIO_Init.Mode = GPIO_MODE_AF_PP;
+  GPIO_Init.Pull = GPIO_NOPULL;
+  GPIO_Init.Speed = GPIO_SPEED_FREQ_HIGH;
+  GPIO_Init.Alternate = GPIO_AF8_UART5;
+  HAL_GPIO_Init(GPIOD, &GPIO_Init);
+
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-
+void SetHZ()
+{
+  htim3.Instance->CNT = 0;
+  htim3.Instance->PSC = 1099 / usRegHoldingBuf[0];
+  htim3.Instance->ARR = (72 * 1000000 / (1099 / usRegHoldingBuf[0] + 1)) / usRegHoldingBuf[0];
+}
+void SetPulse()
+{
+  uint16_t shift = usRegHoldingBuf[4];
+  htim4.Instance->CCR1 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10);
+  htim4.Instance->CCR4 = htim4.Instance->ARR - 72 * (usRegHoldingBuf[1] / 10) - 7 * (usRegHoldingBuf[1] % 10);
+  htim4.Instance->CCR4 -= 72 * (shift / 100);
+  htim4.Instance->CCR4 -= last_0_1_us[((shift % 100) / 10)];
+  htim4.Instance->CCR4 -= last_0_01_us[shift % 10];
+}
+void StopTimers()
+{
+  htim3.Instance->CR1 &= ~TIM_CR1_CEN;
+  htim4.Instance->CCER &= ~TIM_CCER_CC1E;
+  htim4.Instance->CCER &= ~TIM_CCER_CC4E;
+  htim4.Instance->CCER &= ~TIM_CCER_CC2E;
+}
+void StartTimers()
+{
+  htim3.Instance->CR1 |= TIM_CR1_CEN;
+  htim4.Instance->CCER |= TIM_CCER_CC1E;
+  htim4.Instance->CCER |= TIM_CCER_CC4E;
+  htim4.Instance->CCER |= TIM_CCER_CC2E;
+}
 /* USER CODE END 4 */
 
 /**

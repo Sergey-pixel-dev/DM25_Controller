@@ -32,6 +32,7 @@ extern "C"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "modbusSlave.h"
 
 /* USER CODE END Includes */
 
@@ -47,23 +48,35 @@ extern "C"
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-#define N_SAMPLES 25
-#define N_FRAMES 22
+#define MAX_N_FRAMES 26
+#define MAX_N_SAMPLES 64
+#define ADC_PACKAGE 128
   /* USER CODE END EM */
+
+  void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 
   /* Exported functions prototypes ---------------------------------------------*/
   void Error_Handler(void);
 
   /* USER CODE BEGIN EFP */
+  void UART5_Transmit_DMA_Blocking(uint8_t *data, uint16_t size);
+  void PrepareADC(void);
+  void MeasureVDD(void);
+  void UART5_Transmit_DMA_Blocking(uint8_t *data, uint16_t size);
+  void UART5_Transmition_Handler();
 
   /* USER CODE END EFP */
 
   /* Private defines -----------------------------------------------------------*/
 
   /* USER CODE BEGIN Private defines */
-  extern uint16_t frame[N_FRAMES * N_SAMPLES];
-  extern uint8_t frame_8int_V[2 * N_FRAMES * N_SAMPLES];
+  extern uint16_t n_samples;
+  extern uint16_t frame[MAX_N_FRAMES * MAX_N_SAMPLES];
+  extern uint8_t frame_8int_V[2 * MAX_N_FRAMES * MAX_N_SAMPLES + 4];
   extern uint8_t i;
+  extern volatile uint8_t uart5_dma_busy;
+  extern volatile uint8_t RxData[256];
+  extern volatile uint8_t RxData_i;
   /* USER CODE END Private defines */
 
 #ifdef __cplusplus
