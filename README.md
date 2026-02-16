@@ -20,7 +20,7 @@ C, STM32F446, CMSIS/HAL, ADC, DMA, таймеры, UART, Modbus RTU
 
 ## Связанные проекты
 
-- [controller_qt](https://github.com/Sergey-pixel-dev/controller_qt) — десктопное приложение для визуализации данных с этого контроллера
+- [DM25_Controller_PC](https://github.com/Sergey-pixel-dev/controller_qt) — десктопное приложение для визуализации данных с этого контроллера
 
 ## Сборка
 
